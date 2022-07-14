@@ -5,10 +5,10 @@ Experiments with random walks and pipeline to run them.
 ![Pipeline diagram](docs/pipeline.svg)
 
 ## Results file naming
-    <tag>.<experiment_number>.<hypotesis_number>-<implementation_number>.YYYYMMDDHHMMSS.<thread_id>
+    <tag>_<experiment_number>_<hypotesis_number>-<implementation_number>_YYYYMMDDHHMMSS_<thread_id>_<chunk_number>
 
 For example:
-walk.2.3-1.20220301201003.d670460
+walk_2_3_1-20220301201003_d670460_1
 
 ## Action plan
 - [x] Make hello world simulator

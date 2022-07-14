@@ -35,4 +35,6 @@
 
 # Output dirs
 Debug/*
+Release/*
+out/*
 
