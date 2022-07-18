@@ -6,7 +6,10 @@
 #include <stdexcept>
 #include <filesystem>
 #include <time.h>
+#include <unistd.h>
 #include <array>
+#include <sys/wait.h>
+#include <sys/mman.h>
 
 using std::cout;
 using std::endl;
@@ -22,13 +25,15 @@ const unsigned IMPLEMENTATION_NUMBER = 1;
 const unsigned EPOCH_LENGTH { 100'000 };
 const unsigned EPOCHS_TARGET_COUNT { 10 };
 const unsigned EPOCHS_IN_CHUNK { 1'000 };
+const unsigned THREADS_COUNT { 6 };
+
 const char SEPARATOR { ',' };
 const unsigned THREAD_ID_LENGTH { 6 };
 
 using position_t = int;
 using epoch_t = std::array<position_t, EPOCH_LENGTH + 1>;
 using epochs_chunk_t = std::array<epoch_t, EPOCHS_IN_CHUNK>;
-const position_t TARGET_POSITION { 500 };
+const position_t TARGET_POSITION { 100 };
 
 const string STATS_FILE_NAME = "stats.csv";
 
@@ -105,10 +110,17 @@ struct VersionTag {
 				<< "_" + m_programTimestamp << "_" << threadId << "_" << chunkNumber << extension;
 		return ss.str();
 	}
-	VersionTag(string tag, unsigned experimentNumber, unsigned hypothesisNumber, unsigned implementationNumber, string programTimestamp) :
+	VersionTag(string tag, unsigned experimentNumber, unsigned hypothesisNumber, unsigned implementationNumber,
+			string programTimestamp) :
 			m_tag(tag), m_experimentNumber(experimentNumber), m_hypothesisNumber(hypothesisNumber), m_implementationNumber(
 					implementationNumber), m_programTimestamp(programTimestamp) {
 	}
+};
+
+struct StatisticsRecord {
+	long long unsigned m_numIterations { };
+	unsigned m_numEpochs { };
+	unsigned m_numChunks { };
 };
 
 class Simulator {
@@ -117,31 +129,30 @@ class Simulator {
 	RandomBitSource m_src;
 	const VersionTag m_versionTag;
 	const unsigned m_epochsTargetCount;
-	long long unsigned m_numIterations { };
-	unsigned m_numEpochs { };
-	unsigned m_numChunks { };
+	StatisticsRecord m_statRecord;
+	unsigned m_threadsCount { };
 	const fs::path m_resultsDir;
 
 	inline void do_epoch(epoch_t &epoch) {
 		do {
 			position_t position = 0;
 			epoch[0] = position;
-			for (unsigned i = 1; i < sizeof(epoch); i++) {
+			for (unsigned i = 1; i < sizeof(epoch); ++i) {
 				const int b { m_src.getBit() };
 				position += b - ((~b) & 1);
 				epoch[i] = position;
-				m_numIterations++;
+				++(m_statRecord.m_numIterations);
 			}
 		} while (epoch.back() != TARGET_POSITION);
 	}
 
 	void writeChunk(string threadId) const {
 		std::ofstream outFile;
-		outFile.open(m_resultsDir / m_versionTag.getFilename(generateThreadId(), m_numChunks, ".csv"));
+		outFile.open(m_resultsDir / m_versionTag.getFilename(generateThreadId(), m_statRecord.m_numChunks, ".csv"));
 		outFile << "epoch" << SEPARATOR << "time" << SEPARATOR << "position" << "\n";
-		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i < m_numEpochs % EPOCHS_IN_CHUNK); i++) {
-			const unsigned epoch = 1 + i + (m_numChunks - 1) * EPOCHS_IN_CHUNK;
-			for (unsigned t = 0; t < m_chunk[i].size(); t++) {
+		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i < m_statRecord.m_numEpochs % EPOCHS_IN_CHUNK); ++i) {
+			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
+			for (unsigned t = 0; t < m_chunk[i].size(); ++t) {
 				outFile << epoch << SEPARATOR << t << SEPARATOR << m_chunk[i][t] << "\n";
 			}
 		}
@@ -152,15 +163,16 @@ class Simulator {
 		static const char alphanum[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 		string res;
 		res.reserve(THREAD_ID_LENGTH);
-		for (unsigned i = 0; i < THREAD_ID_LENGTH; i++) {
+		for (unsigned i = 0; i < THREAD_ID_LENGTH; ++i) {
 			res += alphanum[rand() % (sizeof(alphanum) - 1)];
 		}
 		return res;
 	}
 
 public:
-	Simulator(VersionTag versionTag, unsigned epochTargetCount, fs::path resultsDir) :
-			m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_resultsDir(resultsDir) {
+	Simulator(VersionTag versionTag, unsigned epochTargetCount, unsigned threadsCount, fs::path resultsDir) :
+			m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_threadsCount(threadsCount), m_resultsDir(
+					resultsDir) {
 		if (!fs::is_directory(resultsDir) || !fs::is_directory(resultsDir)) {
 			fs::create_directory(resultsDir); // create src folder
 		}
@@ -170,42 +182,61 @@ public:
 	void run() {
 		string threadId = generateThreadId();
 		while (true) {
-			m_numChunks++;
+			++(m_statRecord.m_numChunks);
 			for (auto &epoch : m_chunk) {
-				if (m_numEpochs >= m_epochsTargetCount) {
+				if (m_statRecord.m_numEpochs >= m_epochsTargetCount) {
 					break;
 				}
-				m_numEpochs++;
+				++(m_statRecord.m_numEpochs);
 				do_epoch(epoch);
-				cout << m_numEpochs << " " << m_epochsTargetCount << endl;
+				cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
 			}
+			cout << "Writing chunk" << endl;
 			writeChunk(threadId);
-			if (m_numEpochs >= m_epochsTargetCount)
+			if (m_statRecord.m_numEpochs >= m_epochsTargetCount)
 				break;
 		}
 	}
 
-	auto getNumChunks() const {
-		return m_numChunks;
+	auto getStatisticsRecord() const {
+		return m_statRecord;
 	}
+};
 
-	auto getNumEpochs() const {
-		return m_numEpochs;
-	}
-
-	auto getNumIterations() const {
-		return m_numIterations;
+class StatisticsSharedMemory {
+	StatisticsRecord **m_threadRecords;
+public:
+	StatisticsSharedMemory(unsigned threadsCount) :
+			m_threadRecords(
+					static_cast<StatisticsRecord**>(mmap(NULL, threadsCount * sizeof(StatisticsRecord),
+							PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0))) {
 	}
 };
 
 int main(int argc, char **argv) {
-	srand(time(NULL));
 	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : EPOCHS_TARGET_COUNT };
-	const fs::path resultsDir = { argc >= 3 ? argv[2] : "out" };
+	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : THREADS_COUNT };
+	const fs::path resultsDir = { argc >= 4 ? argv[3] : "out" };
 	const TimeMeasurer timeMeasurer;
 	RandomBitSource src;
-	const VersionTag versionTag { TAG, EXPERIMENT_NUMBER, HYPOTHESIS_NUMBER, IMPLEMENTATION_NUMBER, timeMeasurer.getProgramTimestamp() };
-	Simulator sim { versionTag, epochsTargetCount, resultsDir };
+	const VersionTag versionTag { TAG, EXPERIMENT_NUMBER, HYPOTHESIS_NUMBER, IMPLEMENTATION_NUMBER,
+			timeMeasurer.getProgramTimestamp() };
+	Simulator sim { versionTag, epochsTargetCount, threadsCount, resultsDir };
+	std::vector<pid_t> pids(threadsCount);
+	const time_t currentTime { time(NULL) };
+	for (unsigned i = 0; i < pids.size(); ++i) {
+		if ((pids[i] = fork()) < 0) {
+			perror("Cannot fork");
+			abort();
+		} else if (pids[i] == 0) {
+			srand(currentTime + i + 1);
+			sim.run();
+			exit(0);
+		}
+	}
+	for (auto &pid : pids) {
+		pid = wait(NULL);
+	}
 	std::fstream statsFile;
 	statsFile.open(resultsDir / STATS_FILE_NAME, std::ios_base::app);
 	if (!fs::exists(resultsDir / STATS_FILE_NAME)) {
@@ -215,11 +246,10 @@ int main(int argc, char **argv) {
 		statsFile << "epochs" << SEPARATOR << "chunks" << SEPARATOR << "iterations" << SEPARATOR;
 		statsFile << "avg_epoch_length" << SEPARATOR << "threads" << "\n";
 	}
-	sim.run();
 	statsFile << versionTag.m_tag << SEPARATOR << versionTag.m_experimentNumber << SEPARATOR;
 	statsFile << versionTag.m_hypothesisNumber << SEPARATOR << versionTag.m_implementationNumber << SEPARATOR;
 	statsFile << timeMeasurer.getTime(false) << SEPARATOR << timeMeasurer.getTime(true) << SEPARATOR;
-	statsFile << sim.getNumEpochs() << SEPARATOR << sim.getNumChunks() << SEPARATOR << sim.getNumIterations()
+	statsFile << sim.getStatisticsRecord().m_numEpochs << SEPARATOR << sim.getStatisticsRecord().m_numChunks << SEPARATOR << sim.getStatisticsRecord().m_numIterations
 			<< SEPARATOR;
 	statsFile << EPOCH_LENGTH << SEPARATOR << 1 << endl;
 	statsFile.close();
