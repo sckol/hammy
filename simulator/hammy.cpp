@@ -8,6 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <array>
+#include <csignal>
 #include <sys/wait.h>
 #include <sys/mman.h>
 
@@ -23,12 +24,13 @@ const unsigned HYPOTHESIS_NUMBER = 1;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH { 100'000 };
-const unsigned EPOCHS_TARGET_COUNT { 10 };
 const unsigned EPOCHS_IN_CHUNK { 1'000 };
-const unsigned THREADS_COUNT { 6 };
+
+const unsigned DEFAULT_EPOCHS_TARGET_COUNT { 30 };
+const unsigned DEFAULT_THREADS_COUNT { 4 };
+const string DEFAULT_RESULTS_DIR { "out" };
 
 const char SEPARATOR { ',' };
-const unsigned THREAD_ID_LENGTH { 6 };
 
 using position_t = int;
 using epoch_t = std::array<position_t, EPOCH_LENGTH + 1>;
@@ -37,21 +39,24 @@ const position_t TARGET_POSITION { 100 };
 
 const string STATS_FILE_NAME = "stats.csv";
 
+volatile sig_atomic_t WAS_INTERRUPT;
+
 class RandomBitSource {
 	static const uint64_t GENERATOR_MAX_VALUE { std::mt19937_64::max() };
-	std::mt19937_64 gen;
+	std::mt19937_64 m_gen;
 	uint64_t m_bits;
 	uint64_t m_bitMask { GENERATOR_MAX_VALUE };
 	static_assert((GENERATOR_MAX_VALUE ^ (GENERATOR_MAX_VALUE - 1)) == 1,
 			"No support for GENERATOR_MAX_VALUE != 2^(n-1)");
 public:
-	RandomBitSource() :
-			gen(time(0)), m_bits(gen()) {
+	void seed(unsigned threadNumber) {
+		m_gen = std::mt19937_64(std::random_device { }());
+		m_bits = m_gen();
 	}
 
 	auto getBit() {
 		if (!m_bitMask)
-			m_bits = gen(), m_bitMask = GENERATOR_MAX_VALUE;
+			m_bits = m_gen(), m_bitMask = GENERATOR_MAX_VALUE;
 		bool ret = m_bits & 1;
 		m_bitMask >>= 1;
 		m_bits >>= 1;
@@ -79,7 +84,6 @@ class TimeMeasurer {
 				parsedTime->tm_mday, parsedTime->tm_hour, parsedTime->tm_min, parsedTime->tm_sec);
 		return string(res);
 	}
-
 public:
 	TimeMeasurer() :
 			m_beginRealTime(buildTimespec(CLOCK_MONOTONIC)), m_beginCpuTime(buildTimespec(CLOCK_PROCESS_CPUTIME_ID)), m_programTimestamp(
@@ -104,12 +108,13 @@ struct VersionTag {
 	const string m_tag;
 	const unsigned m_experimentNumber, m_hypothesisNumber, m_implementationNumber;
 	const string m_programTimestamp;
-	string getFilename(string threadId, unsigned chunkNumber, string extension) const {
+	string getFilename(unsigned threadNumber, unsigned chunkNumber, string extension) const {
 		stringstream ss;
 		ss << m_tag << "_" << m_experimentNumber << "_" << m_hypothesisNumber << "-" << m_implementationNumber
-				<< "_" + m_programTimestamp << "_" << threadId << "_" << chunkNumber << extension;
+				<< "_" + m_programTimestamp << "_" << threadNumber << "_" << chunkNumber << extension;
 		return ss.str();
 	}
+	VersionTag() = delete;
 	VersionTag(string tag, unsigned experimentNumber, unsigned hypothesisNumber, unsigned implementationNumber,
 			string programTimestamp) :
 			m_tag(tag), m_experimentNumber(experimentNumber), m_hypothesisNumber(hypothesisNumber), m_implementationNumber(
@@ -121,23 +126,86 @@ struct StatisticsRecord {
 	long long unsigned m_numIterations { };
 	unsigned m_numEpochs { };
 	unsigned m_numChunks { };
+	double m_cpuTime { };
+
+	StatisticsRecord operator+(const StatisticsRecord &first) const {
+		StatisticsRecord res = first;
+		res.m_numIterations += m_numIterations;
+		res.m_numEpochs += m_numEpochs;
+		res.m_numChunks += m_numChunks;
+		res.m_cpuTime += m_cpuTime;
+		return res;
+	}
+};
+
+class StatisticsWriter {
+	const unsigned m_threadsCount;
+	const TimeMeasurer m_timeMeasurer;
+	const VersionTag m_versionTag;
+	const fs::path m_resultsDir;
+	StatisticsRecord *m_threadRecords;
+	
+	StatisticsRecord aggregate() const {
+		StatisticsRecord res;
+		for (unsigned i = 0; i < m_threadsCount; ++i) {
+			res = res + m_threadRecords[i];
+		}
+		return res;
+	}
+	
+public:
+	StatisticsWriter() = delete;
+	StatisticsWriter(unsigned threadsCount, TimeMeasurer timeMeasurer, VersionTag versionTag, fs::path resultsDir) :
+			m_threadsCount(threadsCount), m_timeMeasurer(timeMeasurer), m_versionTag(versionTag), m_resultsDir(resultsDir), m_threadRecords(
+					static_cast<StatisticsRecord*>(mmap(NULL, threadsCount * sizeof(StatisticsRecord),
+					PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0))) {
+	}
+
+	void report(unsigned threadNumber, StatisticsRecord record) const {
+		if (threadNumber > m_threadsCount) {
+			perror("Thread number is greated then threads count");
+			abort();
+		}
+		m_threadRecords[threadNumber - 1] = record;
+	}
+
+	void write() const {
+		std::fstream statsFile;
+		statsFile.open(m_resultsDir / STATS_FILE_NAME, std::ios_base::app);
+		if (!fs::exists(m_resultsDir / STATS_FILE_NAME)) {
+			statsFile << "tag" << SEPARATOR << "experiment_number" << SEPARATOR;
+			statsFile << "hypothesis_number" << SEPARATOR << "implementation_number" << SEPARATOR;
+			statsFile << "start_datetime" << SEPARATOR;
+			statsFile << "wall_time" << SEPARATOR << "cpu_time" << SEPARATOR;
+			statsFile << "epochs" << SEPARATOR << "chunks" << SEPARATOR << "iterations" << SEPARATOR;
+			statsFile << "avg_epoch_length" << SEPARATOR << "threads" << "\n";
+		}
+		const StatisticsRecord res = aggregate();
+		statsFile << m_versionTag.m_tag << SEPARATOR << m_versionTag.m_experimentNumber << SEPARATOR;
+		statsFile << m_versionTag.m_hypothesisNumber << SEPARATOR << m_versionTag.m_implementationNumber << SEPARATOR;
+		statsFile << m_timeMeasurer.getProgramTimestamp() << SEPARATOR;
+		statsFile << m_timeMeasurer.getTime(false) << SEPARATOR << res.m_cpuTime << SEPARATOR;
+		statsFile << res.m_numEpochs << SEPARATOR << res.m_numChunks << SEPARATOR << res.m_numIterations << SEPARATOR;
+		statsFile << EPOCH_LENGTH << SEPARATOR << m_threadsCount << endl;
+		statsFile.close();
+	}
 };
 
 class Simulator {
-	const TimeMeasurer m_timeMeasurer;
 	epochs_chunk_t m_chunk;
-	RandomBitSource m_src;
+	StatisticsRecord m_statRecord;
 	const VersionTag m_versionTag;
 	const unsigned m_epochsTargetCount;
-	StatisticsRecord m_statRecord;
-	unsigned m_threadsCount { };
 	const fs::path m_resultsDir;
+	RandomBitSource m_src;
+	const StatisticsWriter m_statWriter;
+	const TimeMeasurer m_timeMeasurer;
 
 	inline void do_epoch(epoch_t &epoch) {
 		do {
 			position_t position = 0;
 			epoch[0] = position;
-			for (unsigned i = 1; i < sizeof(epoch); ++i) {
+			for (unsigned i = 1; i < epoch.size(); ++i) {
 				const int b { m_src.getBit() };
 				position += b - ((~b) & 1);
 				epoch[i] = position;
@@ -146,9 +214,9 @@ class Simulator {
 		} while (epoch.back() != TARGET_POSITION);
 	}
 
-	void writeChunk(string threadId) const {
+	void writeChunk(unsigned threadNumber) const {
 		std::ofstream outFile;
-		outFile.open(m_resultsDir / m_versionTag.getFilename(generateThreadId(), m_statRecord.m_numChunks, ".csv"));
+		outFile.open(m_resultsDir / m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, ".csv"));
 		outFile << "epoch" << SEPARATOR << "time" << SEPARATOR << "position" << "\n";
 		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i < m_statRecord.m_numEpochs % EPOCHS_IN_CHUNK); ++i) {
 			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
@@ -158,44 +226,38 @@ class Simulator {
 		}
 		outFile.close();
 	}
-
-	static string generateThreadId() {
-		static const char alphanum[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-		string res;
-		res.reserve(THREAD_ID_LENGTH);
-		for (unsigned i = 0; i < THREAD_ID_LENGTH; ++i) {
-			res += alphanum[rand() % (sizeof(alphanum) - 1)];
-		}
-		return res;
-	}
-
 public:
-	Simulator(VersionTag versionTag, unsigned epochTargetCount, unsigned threadsCount, fs::path resultsDir) :
-			m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_threadsCount(threadsCount), m_resultsDir(
-					resultsDir) {
+	Simulator() = delete;
+	Simulator(VersionTag versionTag, unsigned epochTargetCount, fs::path resultsDir, RandomBitSource src,
+			StatisticsWriter statWriter, TimeMeasurer timeMeasurer) :
+			m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_resultsDir(resultsDir), m_src(src), m_statWriter(
+					statWriter), m_timeMeasurer(timeMeasurer) {
 		if (!fs::is_directory(resultsDir) || !fs::is_directory(resultsDir)) {
-			fs::create_directory(resultsDir); // create src folder
+			fs::create_directory(resultsDir);
 		}
 
 	}
 
-	void run() {
-		string threadId = generateThreadId();
+	void run(unsigned threadNumber) {		
+		m_src.seed(threadNumber);
 		while (true) {
 			++(m_statRecord.m_numChunks);
 			for (auto &epoch : m_chunk) {
-				if (m_statRecord.m_numEpochs >= m_epochsTargetCount) {
+				if (WAS_INTERRUPT || (m_statRecord.m_numEpochs >= m_epochsTargetCount)) {
 					break;
 				}
 				++(m_statRecord.m_numEpochs);
-				do_epoch(epoch);
-				cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
+				do_epoch(epoch);				
+				cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;				
 			}
-			cout << "Writing chunk" << endl;
-			writeChunk(threadId);
-			if (m_statRecord.m_numEpochs >= m_epochsTargetCount)
+			cout << "Writing chunk from thread " << threadNumber << endl;
+			writeChunk(threadNumber);
+			if (WAS_INTERRUPT || (m_statRecord.m_numEpochs >= m_epochsTargetCount)) {
 				break;
+			}
 		}
+		m_statRecord.m_cpuTime = m_timeMeasurer.getTime(true);
+		m_statWriter.report(threadNumber, m_statRecord);
 	}
 
 	auto getStatisticsRecord() const {
@@ -203,55 +265,34 @@ public:
 	}
 };
 
-class StatisticsSharedMemory {
-	StatisticsRecord **m_threadRecords;
-public:
-	StatisticsSharedMemory(unsigned threadsCount) :
-			m_threadRecords(
-					static_cast<StatisticsRecord**>(mmap(NULL, threadsCount * sizeof(StatisticsRecord),
-							PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0))) {
-	}
-};
+void make_interrupt(int s) {
+	cout << "Caught signal " << s << endl;
+	WAS_INTERRUPT = 1;
+}
 
 int main(int argc, char **argv) {
-	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : EPOCHS_TARGET_COUNT };
-	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : THREADS_COUNT };
-	const fs::path resultsDir = { argc >= 4 ? argv[3] : "out" };
+	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : DEFAULT_EPOCHS_TARGET_COUNT };
+	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : DEFAULT_THREADS_COUNT };
+	const fs::path resultsDir = { argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR };
 	const TimeMeasurer timeMeasurer;
-	RandomBitSource src;
 	const VersionTag versionTag { TAG, EXPERIMENT_NUMBER, HYPOTHESIS_NUMBER, IMPLEMENTATION_NUMBER,
-			timeMeasurer.getProgramTimestamp() };
-	Simulator sim { versionTag, epochsTargetCount, threadsCount, resultsDir };
+				timeMeasurer.getProgramTimestamp() };
+	const StatisticsWriter statWriter { threadsCount, timeMeasurer, versionTag, resultsDir };
+	RandomBitSource src;	
+	Simulator sim { versionTag, epochsTargetCount, resultsDir, src, statWriter, timeMeasurer };
+	std::signal(SIGINT, make_interrupt);
 	std::vector<pid_t> pids(threadsCount);
-	const time_t currentTime { time(NULL) };
-	for (unsigned i = 0; i < pids.size(); ++i) {
-		if ((pids[i] = fork()) < 0) {
+    for (unsigned threadNumber = 1; threadNumber <= pids.size(); ++threadNumber) {
+		if ((pids[threadNumber - 1] = fork()) < 0) {
 			perror("Cannot fork");
 			abort();
-		} else if (pids[i] == 0) {
-			srand(currentTime + i + 1);
-			sim.run();
+		} else if (pids[threadNumber - 1] == 0) {
+			sim.run(threadNumber);
 			exit(0);
 		}
 	}
-	for (auto &pid : pids) {
-		pid = wait(NULL);
-	}
-	std::fstream statsFile;
-	statsFile.open(resultsDir / STATS_FILE_NAME, std::ios_base::app);
-	if (!fs::exists(resultsDir / STATS_FILE_NAME)) {
-		statsFile << "tag" << SEPARATOR << "experiment_number" << SEPARATOR;
-		statsFile << "hypothesis_number" << SEPARATOR << "implementation_number" << SEPARATOR;
-		statsFile << "wall_time" << SEPARATOR << "cpu_time" << SEPARATOR;
-		statsFile << "epochs" << SEPARATOR << "chunks" << SEPARATOR << "iterations" << SEPARATOR;
-		statsFile << "avg_epoch_length" << SEPARATOR << "threads" << "\n";
-	}
-	statsFile << versionTag.m_tag << SEPARATOR << versionTag.m_experimentNumber << SEPARATOR;
-	statsFile << versionTag.m_hypothesisNumber << SEPARATOR << versionTag.m_implementationNumber << SEPARATOR;
-	statsFile << timeMeasurer.getTime(false) << SEPARATOR << timeMeasurer.getTime(true) << SEPARATOR;
-	statsFile << sim.getStatisticsRecord().m_numEpochs << SEPARATOR << sim.getStatisticsRecord().m_numChunks << SEPARATOR << sim.getStatisticsRecord().m_numIterations
-			<< SEPARATOR;
-	statsFile << EPOCH_LENGTH << SEPARATOR << 1 << endl;
-	statsFile.close();
+	int status;
+	while (wait(&status) > 0);
+	statWriter.write();
 	return 0;
 }
