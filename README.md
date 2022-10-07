@@ -13,7 +13,7 @@ walk_2_3_1-20220301201003_d670460_1
 ## Action plan
 - [x] Make hello world simulator
 - [x] Calculate statistics (# of iterations, run time)
-- [ ] Save results to file
+- [x] Save results to file
 - [ ] Save results to Clickhouse
-- [ ] Save statistics to file
+- [x] Save statistics to file
 - [ ] Save statistics to Clickhouse

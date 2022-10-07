@@ -218,7 +218,7 @@ class Simulator {
 		std::ofstream outFile;
 		outFile.open(m_resultsDir / m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, ".csv"));
 		outFile << "epoch" << SEPARATOR << "time" << SEPARATOR << "position" << "\n";
-		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i < m_statRecord.m_numEpochs % EPOCHS_IN_CHUNK); ++i) {
+		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i <= (m_statRecord.m_numEpochs - 1) % EPOCHS_IN_CHUNK); ++i) {
 			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
 			for (unsigned t = 0; t < m_chunk[i].size(); ++t) {
 				outFile << epoch << SEPARATOR << t << SEPARATOR << m_chunk[i][t] << "\n";
