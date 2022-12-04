@@ -38,3 +38,10 @@ Debug/*
 Release/*
 out/*
 
+# Docker environment file
+.env
+
+# Python venv
+venv/*
+
+dbt/logs/*

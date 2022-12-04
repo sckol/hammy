@@ -1,0 +1,25 @@
+---
+version: '3.3'
+
+services:
+  clickhouse-hammy:
+    container_name: clickhouse-hammy
+    image: clickhouse/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    ports:
+    - ${CLICKHOUSE_JDBC_PORT}:8123
+    - ${CLICKHOUSE_NATIVE_PORT}:9000
+    volumes:
+    - ${CLICKHOUSE_DRIVE_DIR}/clickhouse-logs:/var/log/clickhouse-server
+    - type: volume
+      source: clickhouse-data
+      target: /var/lib/clickhouse
+    - ${HAMMY_DIR}/out:/var/lib/clickhouse/user_files
+    - ${HAMMY_DIR}/clickhouse-settings/users.xml:/etc/clickhouse-server/users.xml
+    - ${HAMMY_DIR}/clickhouse-settings/config.xml:/etc/clickhouse-server/config.xml
+    
+volumes:
+  clickhouse-data:

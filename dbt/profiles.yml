@@ -1,0 +1,10 @@
+hammy:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: hammy
+      user: default
+      port: 8123
+      host: localhost
+      send_receive_timeout: 3000
