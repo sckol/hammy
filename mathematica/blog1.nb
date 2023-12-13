@@ -1,0 +1,79 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 12.3' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      2172,         69]
+NotebookOptionsPosition[      1821,         55]
+NotebookOutlinePosition[      2221,         71]
+CellTagsIndexPosition[      2178,         68]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell[TextData[{
+ "M. Betancourt \[OpenCurlyDoubleQuote]The Geometry of Hamiltonian Monte \
+Carlo\[CloseCurlyDoubleQuote]: Tangent vectors of all curves passing through ",
+ Cell[BoxData[
+  FormBox["P", TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "edddd08c-c4a4-4c37-9ea4-6e443971d898"],
+ " form the tangent space ",
+ Cell[BoxData[
+  FormBox[
+   SubscriptBox["T", "P"], TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "e88bbdef-e8bb-4586-a097-3d647b8d0642"],
+ ".\nMy comment:  Tangent planes of all the surfaces passing through ",
+ Cell[BoxData[
+  FormBox["P", TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "048e0d7a-77c7-479c-8dad-73d3262538b4"],
+ " form the ",
+ Cell[BoxData[
+  FormBox[
+   RowBox[{
+    SuperscriptBox["\[CapitalLambda]", 
+     RowBox[{"^", "2"}]], 
+    SubscriptBox["T", "P"]}], TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "4e4fd96e-b2eb-49ed-befd-7e90f7cb9ef9"],
+ "."
+}], "Text",
+ CellChangeTimes->{{3.903054161631607*^9, 3.903054259592247*^9}, {
+  3.9030542936280313`*^9, 3.9030543014527216`*^9}, {3.903054626731961*^9, 
+  3.90305465750158*^9}, {3.903054724461852*^9, 
+  3.90305473524382*^9}},ExpressionUUID->"abaf160e-f7d4-4034-be2e-\
+cca6ad9a4f5a"]
+},
+WindowSize->{1141.2, 592.8},
+WindowMargins->{{0, Automatic}, {Automatic, 0}},
+FrontEndVersion->"12.3 for Microsoft Windows (64-bit) (May 11, 2021)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"ec641604-0bde-45d2-9d08-2196f7eb82c9"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[558, 20, 1259, 33, 58, "Text",ExpressionUUID->"abaf160e-f7d4-4034-be2e-cca6ad9a4f5a"]
+}
+]
+*)
+
+(* End of internal cache information *)
+

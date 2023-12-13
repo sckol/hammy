@@ -1,0 +1,117 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 12.3' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      4726,        109]
+NotebookOptionsPosition[      4190,         93]
+NotebookOutlinePosition[      4590,        109]
+CellTagsIndexPosition[      4547,        106]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell["", "Text",
+ CellChangeTimes->{{3.9087772079170637`*^9, 
+  3.908777209803083*^9}},ExpressionUUID->"c89c1f83-3963-4f7c-8e6d-\
+16b1f7b32fbb"],
+
+Cell["\<\
+Consider an ensemble of random walks. Classify them by how far they moved \
+from the starting point. The most typical path in each group is uniform \
+motion. Consider an uniform motion for each ending point. Each walk can be \
+re-classified to one of the groups by Voronoy\[CloseCurlyQuote]s method by \
+some integral criterion. So we have a net on phase space. We can also \
+classify the paths by some local criterion (moving window or even by single \
+point). In that case we have another random walk on graph -- in phase space. \
+In limit, it is not random, but a usual Hamiltonian motion.
+Stationary distribution for such Markov network is the same as for initial \
+Markov network. But if usual Markov network is symmetric, it is anti-symmetric.
+Energy-entropy dualism: energy is conditioned entropy, averaged by \
+non-important parameters, entropy is averaged energy (by Shaenonn\
+\[CloseCurlyQuote]s definition)
+The difference between speed and momentum is in classification threshold. In \
+speed detection we try to minimize error of classification, in momentum \
+detection we try to minimize weighted error.\
+\>", "Text",
+ CellChangeTimes->{{3.908777380711434*^9, 3.9087774177885876`*^9}, {
+  3.908777487486538*^9, 3.9087775377487125`*^9}, {3.908777597686065*^9, 
+  3.908777626524502*^9}, {3.908777669012481*^9, 3.908777684596446*^9}, {
+  3.9087777173970194`*^9, 3.9087777315085325`*^9}, {3.908777768029504*^9, 
+  3.9087777899079328`*^9}, {3.9087778242376423`*^9, 3.908778098692432*^9}, {
+  3.908778140332552*^9, 3.908778213652317*^9}, {3.908847295169486*^9, 
+  3.908847373936372*^9}},ExpressionUUID->"147084be-44ed-4be8-b659-\
+64059380b82e"],
+
+Cell[TextData[{
+ "Consider an ensemble of discrete random walk. Each random walk is \
+characterised by its final position after large number of steps ",
+ Cell[BoxData[
+  FormBox["M", TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "4f6bcef8-9146-401b-b09e-34e649d30e51"],
+ " or by \[OpenCurlyDoubleQuote]speed\[CloseCurlyDoubleQuote] which is \
+displacement divided by the number of steps. As ",
+ Cell[BoxData[
+  FormBox["M", TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "2bc0edfb-95e7-4065-bf94-20e9dc8815d5"],
+ " increases, the probability of large speed decreases (as ",
+ Cell[BoxData[
+  FormBox[
+   FractionBox["1", 
+    SqrtBox["M"]], TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "e8701c81-1f6c-49ea-8502-9063a50a0592"],
+ " I think). But there is \nWe can consider p|q (likelihood of belonging to \
+some speed class given local behavior) and q|p (probability of given local \
+behavior given speed class).\nThey are connected as Legendre transform.\n\
+Legendre transform and Bayes formula are connected. H(p|q)=E(q|p)-pq or \
+P(p|q)=P(q|p)/P(qp)\nMaybe time is not number of steps, maybe it is ",
+ Cell[BoxData[
+  FormBox[
+   SqrtBox["M"], TraditionalForm]],
+  FormatType->TraditionalForm,ExpressionUUID->
+  "f731d1fa-d2d0-4d2f-ac82-a88cc7a9041e"],
+ "?"
+}], "Text",
+ CellChangeTimes->{{3.908915563926093*^9, 3.9089156352808733`*^9}, 
+   3.9089157990006294`*^9, {3.9089158618186026`*^9, 3.9089159036489916`*^9}, {
+   3.908916003729164*^9, 3.908916038728608*^9}, {3.9089160842974787`*^9, 
+   3.9089162092819014`*^9}, 3.908916254682147*^9, {3.9089162895445147`*^9, 
+   3.908916292418104*^9}, {3.908916458185058*^9, 3.908916656850136*^9}, {
+   3.908916738232683*^9, 
+   3.9089167951927104`*^9}},ExpressionUUID->"0cb363db-0ee1-4f5a-97cb-\
+ab544b8f05d7"]
+},
+WindowSize->{1141.2, 587.4},
+WindowMargins->{{0, Automatic}, {Automatic, 0}},
+FrontEndVersion->"12.3 for Microsoft Windows (64-bit) (May 11, 2021)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"3651b5e6-f551-4e80-84ee-d0862ad6fd96"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[558, 20, 144, 3, 35, "Text",ExpressionUUID->"c89c1f83-3963-4f7c-8e6d-16b1f7b32fbb"],
+Cell[705, 25, 1660, 25, 196, "Text",ExpressionUUID->"147084be-44ed-4be8-b659-64059380b82e"],
+Cell[2368, 52, 1818, 39, 158, "Text",ExpressionUUID->"0cb363db-0ee1-4f5a-97cb-ab544b8f05d7"]
+}
+]
+*)
+
