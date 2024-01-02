@@ -301,25 +301,6 @@ void make_interrupt(int s) {
 }
 
 int main(int argc, char **argv) {
-	struct rlimit rl;
-    int result;
-
-    result = getrlimit(RLIMIT_STACK, &rl);
-    if (result == 0) {
-        // Set both soft and hard limits to RLIM_INFINITY for unlimited stack size
-        rl.rlim_cur = RLIM_INFINITY;
-        rl.rlim_max = RLIM_INFINITY;
-
-        result = setrlimit(RLIMIT_STACK, &rl);
-        if (result != 0) {
-            fprintf(stderr, "setrlimit returned result = %d\n", result);
-            return 1;  // Indicate failure
-        }
-    } else {
-        fprintf(stderr, "getrlimit failed\n");
-        return 1;  // Indicate failure
-    }
-
 	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : DEFAULT_EPOCHS_TARGET_COUNT };
 	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : DEFAULT_THREADS_COUNT };
 	const fs::path resultsDir = { argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR };
