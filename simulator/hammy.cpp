@@ -11,6 +11,8 @@
 #include <csignal>
 #include <sys/wait.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
+#include <stdio.h>
 
 using std::cout;
 using std::endl;
@@ -18,24 +20,30 @@ using std::string;
 using std::stringstream;
 namespace fs = std::filesystem;
 
-const string TAG = "walk";
+const string TAG = "lagrangian";
 const unsigned EXPERIMENT_NUMBER = 1;
 const unsigned HYPOTHESIS_NUMBER = 1;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
-const unsigned EPOCH_LENGTH { 100'000 };
-const unsigned EPOCHS_IN_CHUNK { 1'000 };
+const unsigned EPOCH_LENGTH { 6'000 };
+const unsigned EPOCHS_IN_CHUNK { 1'000'000 };
 
-const unsigned DEFAULT_EPOCHS_TARGET_COUNT { 30 };
+const unsigned DEFAULT_EPOCHS_TARGET_COUNT { 1'000'000 };
 const unsigned DEFAULT_THREADS_COUNT { 4 };
 const string DEFAULT_RESULTS_DIR { "out" };
 
 const char SEPARATOR { ',' };
 
 using position_t = int;
-using epoch_t = std::array<position_t, EPOCH_LENGTH + 1>;
+const position_t TARGET_POSITIONS[] {0, 6, 12, 60, 120};
+const unsigned CHECKPOINTS[] = {1000, 1001, 1005, 1010, 1050, 1100, 2000, 2001, 2005, 2010, 2050, 2100, 3000, 3001, 3005, 3010, 3050, 3100, 4000, 4001, 4005, 4010, 4050, 4100, 5000, 5001, 5005, 5010, 5050, 5100};
+const unsigned MAIN_CHECKPOINTS_COUNT = 5;
+const unsigned ADDITIONAL_CHECKPOINTS_COUNT = 5;
+const unsigned CHECKPOINTS_LEN {sizeof(CHECKPOINTS) / sizeof(*CHECKPOINTS)};
+static_assert(CHECKPOINTS_LEN == MAIN_CHECKPOINTS_COUNT * (ADDITIONAL_CHECKPOINTS_COUNT + 1), "CHECKPOINT_LEN does not math MAIN_CHECKPOINTS_COUNT and ADDITIONAL_CHECKPOINTS_COUNT");
+
+using epoch_t = std::array<position_t, CHECKPOINTS_LEN + 1>;
 using epochs_chunk_t = std::array<epoch_t, EPOCHS_IN_CHUNK>;
-const position_t TARGET_POSITION { 100 };
 
 const string STATS_FILE_NAME = "stats.csv";
 
@@ -202,27 +210,49 @@ class Simulator {
 	const TimeMeasurer m_timeMeasurer;
 
 	inline void do_epoch(epoch_t &epoch) {
-		do {
-			position_t position = 0;
-			epoch[0] = position;
-			for (unsigned i = 1; i < epoch.size(); ++i) {
+		bool successful_epoch = 0;		
+		position_t position ;
+		do {							
+			position = 0;
+			unsigned checkpoint_index = 0;
+			unsigned checkpoint = CHECKPOINTS[0];		
+			for (unsigned i = 1; i <= EPOCH_LENGTH; ++i) {
 				const int b { m_src.getBit() };
 				position += b - ((~b) & 1);
-				epoch[i] = position;
+				if (i == checkpoint) {
+					epoch[checkpoint_index + 1] = position;
+					checkpoint_index++;
+					checkpoint = CHECKPOINTS[checkpoint_index];
+				}
 				++(m_statRecord.m_numIterations);
+			}			
+			for (auto target_position : TARGET_POSITIONS) {
+				if (position == target_position || position == -target_position) {
+					successful_epoch = 1;
+					break;
+				}
 			}
-		} while (epoch.back() != TARGET_POSITION);
+		} while (!successful_epoch);
+		epoch[0] = position;
 	}
 
 	void writeChunk(unsigned threadNumber) const {
 		std::ofstream outFile;
 		outFile.open(m_resultsDir / m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, ".csv"));
-		outFile << "epoch" << SEPARATOR << "time" << SEPARATOR << "position" << "\n";
+		outFile << "epoch" << SEPARATOR << "target_position";
+		for (unsigned i = 1; i <= MAIN_CHECKPOINTS_COUNT; i++) {
+			for(unsigned j = 0; j <= ADDITIONAL_CHECKPOINTS_COUNT; j++) {
+				outFile << SEPARATOR << "checkpoint" << i << j << "_position";
+			}
+		}
+		outFile << "\n";
 		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i <= (m_statRecord.m_numEpochs - 1) % EPOCHS_IN_CHUNK); ++i) {
 			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
+			outFile << epoch;
 			for (unsigned t = 0; t < m_chunk[i].size(); ++t) {
-				outFile << epoch << SEPARATOR << t << SEPARATOR << m_chunk[i][t] << "\n";
+				outFile << SEPARATOR << m_chunk[i][t];
 			}
+			outFile << "\n";
 		}
 		outFile.close();
 	}
@@ -271,6 +301,23 @@ void make_interrupt(int s) {
 }
 
 int main(int argc, char **argv) {
+	//     const rlim_t kStackSize = 640L * 1024L * 1024L;   // min stack size = 64 Mb
+    // struct rlimit rl;
+    // int result;
+
+    // result = getrlimit(RLIMIT_STACK, &rl);
+    // if (result == 0)
+    // {
+    //    // if (rl.rlim_cur < kStackSize)
+    //     {
+    //         rl.rlim_cur = kStackSize;
+    //         result = setrlimit(RLIMIT_STACK, &rl);
+    //         if (result != 0)
+    //         {
+    //             fprintf(stderr, "setrlimit returned result = %d\n", result);
+    //         }
+    //     }
+    // }
 	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : DEFAULT_EPOCHS_TARGET_COUNT };
 	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : DEFAULT_THREADS_COUNT };
 	const fs::path resultsDir = { argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR };
