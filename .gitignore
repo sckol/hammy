@@ -34,9 +34,7 @@
 #/.project
 
 # Output dirs
-Debug/*
-Release/*
-out/*
+build/*
 
 # Docker environment file
 .env
