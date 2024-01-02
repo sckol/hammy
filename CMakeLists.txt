@@ -14,7 +14,9 @@ execute_process(
 #include(CTest)
 #enable_testing()
 
+add_executable(hammy_unlimited_stack simulator/hammy_unlimited_stack.cpp)
 add_executable(hammy simulator/hammy.cpp)
+add_dependencies(hammy_unlimited_stack hammy)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})

@@ -26,9 +26,9 @@ const unsigned HYPOTHESIS_NUMBER = 1;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH { 6'000 };
-const unsigned EPOCHS_IN_CHUNK { 1'000'000 };
+const unsigned EPOCHS_IN_CHUNK { 10'000'000 };
 
-const unsigned DEFAULT_EPOCHS_TARGET_COUNT { 1'000'000 };
+const unsigned DEFAULT_EPOCHS_TARGET_COUNT { 10'000'000 };
 const unsigned DEFAULT_THREADS_COUNT { 4 };
 const string DEFAULT_RESULTS_DIR { "out" };
 
@@ -301,23 +301,25 @@ void make_interrupt(int s) {
 }
 
 int main(int argc, char **argv) {
-	//     const rlim_t kStackSize = 640L * 1024L * 1024L;   // min stack size = 64 Mb
-    // struct rlimit rl;
-    // int result;
+	struct rlimit rl;
+    int result;
 
-    // result = getrlimit(RLIMIT_STACK, &rl);
-    // if (result == 0)
-    // {
-    //    // if (rl.rlim_cur < kStackSize)
-    //     {
-    //         rl.rlim_cur = kStackSize;
-    //         result = setrlimit(RLIMIT_STACK, &rl);
-    //         if (result != 0)
-    //         {
-    //             fprintf(stderr, "setrlimit returned result = %d\n", result);
-    //         }
-    //     }
-    // }
+    result = getrlimit(RLIMIT_STACK, &rl);
+    if (result == 0) {
+        // Set both soft and hard limits to RLIM_INFINITY for unlimited stack size
+        rl.rlim_cur = RLIM_INFINITY;
+        rl.rlim_max = RLIM_INFINITY;
+
+        result = setrlimit(RLIMIT_STACK, &rl);
+        if (result != 0) {
+            fprintf(stderr, "setrlimit returned result = %d\n", result);
+            return 1;  // Indicate failure
+        }
+    } else {
+        fprintf(stderr, "getrlimit failed\n");
+        return 1;  // Indicate failure
+    }
+
 	const unsigned epochsTargetCount { argc >= 2 ? std::stoi(argv[1]) : DEFAULT_EPOCHS_TARGET_COUNT };
 	const unsigned threadsCount { argc >= 3 ? std::stoi(argv[2]) : DEFAULT_THREADS_COUNT };
 	const fs::path resultsDir = { argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR };
