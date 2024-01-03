@@ -28,9 +28,9 @@ const unsigned HYPOTHESIS_NUMBER = 1;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH{6'000};
-const unsigned EPOCHS_IN_CHUNK{1'000'000};
+const unsigned EPOCHS_IN_CHUNK{10'000'000};
 
-const unsigned DEFAULT_EPOCHS_TARGET_COUNT{1'000'000};
+const unsigned DEFAULT_EPOCHS_TARGET_COUNT{10'000'000};
 const unsigned DEFAULT_THREADS_COUNT{4};
 const string DEFAULT_RESULTS_DIR{"out"};
 
@@ -96,10 +96,9 @@ class TimeMeasurer
 		char res[15];
 		timespec beginUnixTime;
 		clock_gettime(CLOCK_REALTIME, &beginUnixTime);
-		auto parsedTime{gmtime(&beginUnixTime.tv_sec)};
-		snprintf(res, 15, "%4d%02d%02d%02d%02d%02d", parsedTime->tm_year + 1900, parsedTime->tm_mon + 1,
-				 parsedTime->tm_mday, parsedTime->tm_hour, parsedTime->tm_min, parsedTime->tm_sec);
-		return string(res);
+		auto parsedTime = gmtime(&beginUnixTime.tv_sec);
+		strftime(res, sizeof(res), "%Y%m%d%H%M%S", parsedTime);
+		return std::string(res);
 	}
 
 public:
@@ -231,7 +230,7 @@ public:
 
 class Simulator
 {
-	epochs_chunk_t m_chunk;
+	epochs_chunk_t *m_chunk;
 	StatisticsRecord m_statRecord;
 	const VersionTag m_versionTag;
 	const unsigned m_epochsTargetCount;
@@ -290,9 +289,9 @@ class Simulator
 		{
 			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
 			outFile << epoch;
-			for (unsigned t = 0; t < m_chunk[i].size(); ++t)
+			for (unsigned t = 0; t < (*m_chunk)[i].size(); ++t)
 			{
-				outFile << SEPARATOR << m_chunk[i][t];
+				outFile << SEPARATOR << (*m_chunk)[i][t];
 			}
 			outFile << "\n";
 		}
@@ -332,9 +331,9 @@ class Simulator
 		{
 			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
 			os << epoch;
-			for (unsigned t = 0; t < m_chunk[i].size(); ++t)
+			for (unsigned t = 0; t < (*m_chunk)[i].size(); ++t)
 			{
-				os << m_chunk[i][t];
+				os << (*m_chunk)[i][t];
 			}
 			os << parquet::EndRow;
 		}
@@ -353,11 +352,16 @@ public:
 
 	void run(unsigned threadNumber)
 	{
+		m_chunk = static_cast<epochs_chunk_t *>(calloc(1, sizeof(epochs_chunk_t)));
+		if (!m_chunk)
+		{
+			throw std::bad_alloc();
+		}
 		m_src.seed(threadNumber);
 		while (true)
 		{
 			++(m_statRecord.m_numChunks);
-			for (auto &epoch : m_chunk)
+			for (auto &epoch : *m_chunk)
 			{
 				if (WAS_INTERRUPT || (m_statRecord.m_numEpochs >= m_epochsTargetCount))
 				{
