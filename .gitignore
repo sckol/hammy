@@ -43,3 +43,4 @@ build/*
 venv/*
 
 dbt/logs/*
+*decrypted.xml

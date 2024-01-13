@@ -1,4 +1,7 @@
-with  
+insert into function s3(
+  's3:///hammy/lagrangian/1/1/proc/exactness-curve.csv',
+  'CSVWithNames'
+) with  
 sorted as (select checkpoint10_position,
   row_number() over(order by rand()) sorted1,
   row_number() over(order by rand()) sorted2,
@@ -10,7 +13,7 @@ sorted as (select checkpoint10_position,
   row_number() over(order by rand()) sorted8,
   row_number() over(order by rand()) sorted9,
   row_number() over(order by rand()) sorted10
-  from file('hammy/lagrangian_*.snappy.parquet', Parquet) 
+  from s3('s3:///hammy/lagrangian/1/1/raw/*.gzip.parquet', Parquet)  --file('hammy/lagrangian_*.snappy.parquet', Parquet) 
   where target_position = 60),
 
 counts as (select *,
@@ -108,3 +111,4 @@ accumulate_changes as (select sorted,
   cast(sum(change) over (order by sorted) as Float32) / 10 as exactness_ratio
   from union_changes)
 select * from accumulate_changes
+settings s3_create_new_file_on_insert=1
