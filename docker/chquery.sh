@@ -8,5 +8,4 @@ else
 fi
 echo "Executing the query $query"
 run_nice ./clickhouse --config-file /root/clickhouse-local.xml --query "$query"
-yc compute instance delete --id "$YC_INSTANCE_ID" --async
 echo "Query done"
