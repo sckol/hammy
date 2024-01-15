@@ -372,11 +372,7 @@ public:
 				cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
 			}
 			cout << "Writing chunk from thread " << threadNumber << endl;
-			writeChunkCSV(threadNumber);
-			writeChunkParquet(threadNumber, "snappy");
-			writeChunkParquet(threadNumber, "gz4");
-			writeChunkParquet(threadNumber, "gzip");
-			writeChunkParquet(threadNumber, "zstd");
+			writeChunkParquet(threadNumber, "gzip");			
 			if (WAS_INTERRUPT || (m_statRecord.m_numEpochs >= m_epochsTargetCount))
 			{
 				break;
