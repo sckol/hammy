@@ -6,6 +6,7 @@ if [ $# -ne 1 ]; then
 else
     query="$1"
 fi
-echo "Executing the query $query"
-run_nice ./clickhouse --config-file /root/clickhouse-local.xml --query "$query"
+echo "$query" > main_query.sql
+echo "Executing the query beginning with " \"$(head -n2 main_query.sql)\" and ending with \"$(tail -n2 main_query.sql)\"
+run_nice ./clickhouse --config-file clickhouse-local.xml --queries-file main_query.sql
 echo "Query done"

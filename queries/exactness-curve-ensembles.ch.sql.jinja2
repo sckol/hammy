@@ -1,0 +1,44 @@
+{%set N = 5 -%}
+{%set M = 17 -%}
+create view generate_exactess_curve as with  
+srt as (select 
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}
+  checkpoint{{ i }}0_position,
+  {%- endfor %}
+  {%- set comma = joiner(",") %}
+  row_number() over(order by rand()) sorted
+  from s3('s3:///hammy/lagrangian/1/1/raw/*.gzip.parquet', Parquet)
+  where target_position = 60),
+counts as (select sorted,
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  countIf(checkpoint{{ i }}0_position = {{ i }} * 10) over(order by sorted) position{{ i }}_exact, 
+  countIf(checkpoint{{ i }}0_position = {{ i }} * 10 - 2) over(order by sorted) position{{ i }}_left,
+  countIf(checkpoint{{ i }}0_position = {{ i }} * 10 + 2) over(order by sorted) position{{ i }}_right
+  {%- endfor %}
+  from srt),
+is_top_exact as (select sorted,
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  position{{ i }}_exact > position{{ i }}_left and position{{ i }}_exact > position{{ i }}_right correct{{ i }}
+  {%- endfor %}
+  from counts),
+fix_changes as (select sorted,
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  correct{{ i }} - lagInFrame(correct{{ i }}) over (order by sorted) as change{{ i }}
+  {%- endfor %}
+  from is_top_exact),
+leave_changes as (select * 
+  from fix_changes
+  where {%- set orr = joiner(" or ") %}
+    {% for i in range(1, N + 1) %}{{ orr() }}change{{ i }} != 0{% endfor %})
+select * from leave_changes;
+
+{% for i in range (1, M +1) %}
+insert into function s3(
+  's3:///hammy/lagrangian/1/1/proc/exactness-curve-ensembles/5/single-ensemble.csv',
+  'CSVWithNames'
+) select {{ i }} ensemble, * from generate_exactess_curve settings s3_create_new_file_on_insert=1;
+{%- endfor %}

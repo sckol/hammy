@@ -1,0 +1,32 @@
+{%set N = 5 -%}
+insert into function s3(
+  's3:///hammy/lagrangian/1/1/proc/exactness-curve-accumulated.csv',
+  'CSVWithNames'
+) 
+with uni as (select sorted,
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  cast(sum(change{{ i }}) as Float) / 100 as exactness_ratio{{ i }}
+  {%- endfor %}
+  from s3('s3:///hammy/lagrangian/1/1/proc/exactness-curve-ensembles/*/single-ensemble.*csv', CSVWithNames)
+  group by sorted),
+cum as (select sorted, 
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  sum(exactness_ratio{{ i }}) over (order by sorted) exactness_ratio{{ i }}
+  {%- endfor %}
+   from uni),
+discretize as (select cast(sorted / 100000 as Int32) * 100000 steps, 
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  min(exactness_ratio{{ i }}) exactness_ratio{{ i }}
+  {%- endfor %}
+  from cum group by steps),
+x_axis as (select arrayJoin(range(0, (select max(steps) from discretize) + 1, 10000)) as steps),
+fill_zeros as (select steps, 
+  {%- set comma = joiner(",") %}
+  {%- for i in range(1, N + 1) %}{{ comma() }}
+  last_value(exactness_ratio{{ i }}) ignore nulls over (order by steps) exactness_ratio{{ i }}
+  {%- endfor %}
+  from x_axis left join discretize using(steps) settings join_use_nulls=1)
+select * from fill_zeros

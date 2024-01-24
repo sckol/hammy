@@ -12,6 +12,10 @@
        pipe:
          - storage_ref:
              name: main
+         - filter:
+             plugin: filter_metrics
+             config:
+               match: "{name=sys.memory.MemFree}"
        output:
          plugin: yc_metrics
          config:
