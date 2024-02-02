@@ -1,0 +1,31 @@
+{% set MAIN_CHECKPOINTS_COUNT = 5 -%}
+{% set ADDITIONAL_CHECKPOINTS_COUNT = 5 -%}
+{% set ADDITIONAL_VALUES = [0, 1, 5, 10, 50, 100] -%}
+insert into function s3(
+  's3:///hammy/lagrangian/1/1/proc/trajectories.csv',
+  'CSVWithNames'
+) 
+with src as (
+  select *
+  from s3('s3:///hammy/lagrangian/1/1/raw/lagrangian_*.gzip.parquet', Parquet)),
+cnts as (
+  {%- set unionall1 = joiner(" union all ") %}
+  {%- for i in range(1, MAIN_CHECKPOINTS_COUNT + 1) %}{{ unionall1() }}
+  {%- set unionall2 = joiner(" union all ") %}
+  {%- for j in range(0, ADDITIONAL_CHECKPOINTS_COUNT) %}{{ unionall2() }}
+  select target_position,
+    {{ i * 1000 + ADDITIONAL_VALUES[j] }} checkpoint, 
+    checkpoint{{ i }}{{ j }}_position position, count(*) cnt,
+    position = round(target_position / 6000 * checkpoint) is_correct,
+    {{ 1 if j == 0 else 0 }} is_main_checkpoint,
+    row_number() over (partition by target_position, checkpoint order by cnt desc) rn
+  from src group by target_position, position
+  {%- endfor %}
+  {%- endfor %}),
+traj as (
+  select target_position, checkpoint, is_main_checkpoint, position, is_correct
+  from cnts where rn = 1),
+fll as (select * from traj union all
+  select target_position, 0, 1, 0, true from traj group by target_position union all
+  select target_position, 6000, 1, target_position, true from traj group by target_position)
+select * from fll

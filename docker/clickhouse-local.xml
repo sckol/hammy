@@ -12,5 +12,9 @@
             <to>https://storage.yandexcloud.net</to>
         </s3>
     </url_scheme_mappers>
-    <s3_truncate_on_insert>1</s3_truncate_on_insert>
+    <user_directories>
+        <users_xml>
+            <path>clickhouse-users.xml</path>
+        </users_xml>        
+    </user_directories>
 </clickhouse>
