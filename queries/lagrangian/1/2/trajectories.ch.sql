@@ -1,10 +1,10 @@
 insert into function s3(
-  's3:///hammy/lagrangian/1/3/proc/trajectories.csv',
+  's3:///hammy/lagrangian/1/2/proc/trajectories.csv',
   'CSVWithNames'
 ) 
 with src as (
   select *
-  from file('../build/out/lagrangian_1_3-*.gzip.parquet', Parquet)),
+  from file('../build/out/lagrangian_*.gzip.parquet', Parquet)),
 cnts as (
   select target_position,
     1000 checkpoint, 

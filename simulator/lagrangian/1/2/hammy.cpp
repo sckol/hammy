@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
 
 const string TAG = "lagrangian";
 const unsigned EXPERIMENT_NUMBER = 1;
-const unsigned HYPOTHESIS_NUMBER = 3;
+const unsigned HYPOTHESIS_NUMBER = 2;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH{6'000};
@@ -57,8 +57,8 @@ class RandomBitSource
 	std::mt19937_64 m_gen;
 	uint64_t m_bits;
 	uint64_t m_bitMask{GENERATOR_MAX_VALUE};
-	static_assert((((GENERATOR_MAX_VALUE >> 1) + 1) % 8 == 0),
-				  "No support for GENERATOR_MAX_VALUE not divided by 16");
+	static_assert((GENERATOR_MAX_VALUE ^ (GENERATOR_MAX_VALUE - 1)) == 1,
+				  "No support for GENERATOR_MAX_VALUE != 2^(n-1)");
 
 public:
 	void seed(unsigned threadNumber)
@@ -67,13 +67,13 @@ public:
 		m_bits = m_gen();
 	}
 
-	auto getFourBits()
+	auto getTwoBits()
 	{
 		if (!(m_bitMask & ~1))
 			m_bits = m_gen(), m_bitMask = GENERATOR_MAX_VALUE;
-		int ret = m_bits & 15;
-		m_bitMask >>= 4;
-		m_bits >>= 4;
+		int ret = m_bits & 3;
+		m_bitMask >>= 2;
+		m_bits >>= 2;
 		return ret;
 	}
 };
@@ -250,8 +250,8 @@ class Simulator
 			unsigned checkpoint = CHECKPOINTS[0];
 			for (unsigned i = 1; i <= EPOCH_LENGTH; ++i)
 			{
-				const int b{m_src.getFourBits()};								
-				if (b & 14) {
+				const int b{m_src.getTwoBits()};								
+				if (b & 2) {
 					position += (b & 1) - ((~b) & 1);
 				}
 				if (i == checkpoint)
