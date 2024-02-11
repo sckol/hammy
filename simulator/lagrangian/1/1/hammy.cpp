@@ -206,8 +206,9 @@ public:
 	void write() const
 	{
 		std::fstream statsFile;
+		const bool fileExists = fs::exists(m_resultsDir / STATS_FILE_NAME);
 		statsFile.open(m_resultsDir / STATS_FILE_NAME, std::ios_base::app);
-		if (!fs::exists(m_resultsDir / STATS_FILE_NAME))
+		if (!fileExists)
 		{
 			statsFile << "tag" << SEPARATOR << "experiment_number" << SEPARATOR;
 			statsFile << "hypothesis_number" << SEPARATOR << "implementation_number" << SEPARATOR;
