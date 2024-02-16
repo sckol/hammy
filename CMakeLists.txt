@@ -7,6 +7,7 @@ include(FetchContent)
 Set(FETCHCONTENT_QUIET FALSE)
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
+find_package(Protobuf REQUIRED)
 
 file(GLOB JINJA_FILES ${CMAKE_CURRENT_SOURCE_DIR}/queries/*.jinja2)
 add_custom_target(process_jinja DEPENDS ${JINJA_FILES}
@@ -15,7 +16,7 @@ add_custom_target(process_jinja DEPENDS ${JINJA_FILES}
 
 
 add_executable(hammy simulator/hammy.cpp)
-target_link_libraries(hammy PRIVATE Arrow::arrow_shared Parquet::parquet_shared)
+target_link_libraries(hammy PRIVATE Arrow::arrow_static Parquet::parquet_static)
 add_dependencies(hammy process_jinja)
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
