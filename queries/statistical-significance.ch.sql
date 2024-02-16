@@ -4,7 +4,7 @@ insert into function s3(
 ) 
 with src as (
   select *, if(target_position >= 0, 1, -1) sgn 
-  from file('../build/out/lagrangian_1_3-*.gzip.parquet', Parquet)),
+  from s3('s3:///hammy/lagrangian/1/3/raw/lagrangian_*.gzip.parquet', Parquet)),
 cnts as (
   select abs(target_position) target_position,
     1000 checkpoint, 

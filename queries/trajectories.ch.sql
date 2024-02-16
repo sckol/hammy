@@ -4,7 +4,7 @@ insert into function s3(
 ) 
 with src as (
   select *
-  from file('../build/out/lagrangian_1_3-*.gzip.parquet', Parquet)),
+  from s3('s3:///hammy/lagrangian/1/3/raw/lagrangian_*.gzip.parquet', Parquet)),
 cnts as (
   select target_position,
     1000 checkpoint, 

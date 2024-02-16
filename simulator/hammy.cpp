@@ -28,7 +28,7 @@ const unsigned HYPOTHESIS_NUMBER = 3;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH{6'000};
-const unsigned EPOCHS_IN_CHUNK{10'000'000};
+const unsigned EPOCHS_IN_CHUNK{5'000'000};
 
 const unsigned DEFAULT_EPOCHS_TARGET_COUNT{10'000'000};
 const unsigned DEFAULT_THREADS_COUNT{4};
@@ -372,7 +372,9 @@ public:
 				}
 				++(m_statRecord.m_numEpochs);
 				do_epoch(epoch);
-				cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
+				if (m_statRecord.m_numEpochs % 100'000 == 1) {
+					cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
+				}
 			}
 			cout << "Writing chunk from thread " << threadNumber << endl;
 			writeChunkParquet(threadNumber, "gzip");			
