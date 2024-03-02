@@ -15,8 +15,6 @@
 #include <stdio.h>
 #include <arrow/io/api.h>
 #include "parquet/stream_writer.h"
-#include <cmath>
-#include <limits>
 
 using std::cout;
 using std::endl;
@@ -25,28 +23,28 @@ using std::stringstream;
 namespace fs = std::filesystem;
 
 const string TAG = "lagrangian";
-const unsigned EXPERIMENT_NUMBER = 2;
-const unsigned HYPOTHESIS_NUMBER = 1;
+const unsigned EXPERIMENT_NUMBER = 1;
+const unsigned HYPOTHESIS_NUMBER = 3;
 const unsigned IMPLEMENTATION_NUMBER = 1;
 
 const unsigned EPOCH_LENGTH{6'000};
-const unsigned EPOCHS_IN_CHUNK{10'000'000};
+const unsigned EPOCHS_IN_CHUNK{5'000'000};
 
 const unsigned DEFAULT_EPOCHS_TARGET_COUNT{10'000'000};
 const unsigned DEFAULT_THREADS_COUNT{4};
 const string DEFAULT_RESULTS_DIR{"out"};
 
 const char SEPARATOR{','};
-const uint32_t MAX_UINT32{std::numeric_limits<uint32_t>::max()};
 
 using position_t = int;
-const position_t TARGET_POSITIONS[]{0, 24};
-const unsigned short CHECKPOINT_LENGTH{100};
-static_assert(EPOCH_LENGTH % CHECKPOINT_LENGTH == 0, "EPOCH_LENGTH must be divided by CHECKPOINT_LEN");
+const position_t TARGET_POSITIONS[]{0, 6, 12, 60, 120};
+const unsigned CHECKPOINTS[] = {1000, 1001, 1005, 1010, 1050, 1100, 2000, 2001, 2005, 2010, 2050, 2100, 3000, 3001, 3005, 3010, 3050, 3100, 4000, 4001, 4005, 4010, 4050, 4100, 5000, 5001, 5005, 5010, 5050, 5100};
+const unsigned MAIN_CHECKPOINTS_COUNT = 5;
+const unsigned ADDITIONAL_CHECKPOINTS_COUNT = 5;
+const unsigned CHECKPOINTS_LEN{sizeof(CHECKPOINTS) / sizeof(*CHECKPOINTS)};
+static_assert(CHECKPOINTS_LEN == MAIN_CHECKPOINTS_COUNT * (ADDITIONAL_CHECKPOINTS_COUNT + 1), "CHECKPOINT_LEN does not math MAIN_CHECKPOINTS_COUNT and ADDITIONAL_CHECKPOINTS_COUNT");
 
-uint32_t POTENTIAL_THRESHOLDS[2 * EPOCH_LENGTH + 1];
-
-using epoch_t = std::array<position_t, EPOCH_LENGTH / CHECKPOINT_LENGTH>;
+using epoch_t = std::array<position_t, CHECKPOINTS_LEN + 1>;
 using epochs_chunk_t = std::array<epoch_t, EPOCHS_IN_CHUNK>;
 
 const string STATS_FILE_NAME = "stats.csv";
@@ -69,22 +67,13 @@ public:
 		m_bits = m_gen();
 	}
 
-	auto get4Bits()
+	auto getFourBits()
 	{
 		if (!(m_bitMask & ~1))
 			m_bits = m_gen(), m_bitMask = GENERATOR_MAX_VALUE;
 		int ret = m_bits & 15;
 		m_bitMask >>= 4;
 		m_bits >>= 4;
-		return ret;
-	}
-	auto get32Bits()
-	{
-		if (!(m_bitMask & ~1))
-			m_bits = m_gen(), m_bitMask = GENERATOR_MAX_VALUE;
-		uint32_t ret = m_bits & MAX_UINT32;
-		m_bitMask >>= 32;
-		m_bits >>= 32;
 		return ret;
 	}
 };
@@ -247,8 +236,7 @@ class Simulator
 	const VersionTag m_versionTag;
 	const unsigned m_epochsTargetCount;
 	const fs::path m_resultsDir;
-	RandomBitSource m_src_kinetic;
-	RandomBitSource m_src_potential;
+	RandomBitSource m_src;
 	const StatisticsWriter m_statWriter;
 	const TimeMeasurer m_timeMeasurer;
 
@@ -258,32 +246,26 @@ class Simulator
 		position_t position;
 		do
 		{
-			position = 0;			
-			bool potential_kill = 0;
+			position = 0;
+			unsigned checkpoint_index = 0;
+			unsigned checkpoint = CHECKPOINTS[0];
 			for (unsigned i = 1; i <= EPOCH_LENGTH; ++i)
 			{
-				++(m_statRecord.m_numIterations);
-				auto death = m_src_potential.get32Bits();
-				// cout << death << " " << POTENTIAL_THRESHOLDS[EPOCH_LENGTH + position] << endl; 
-				if (death > POTENTIAL_THRESHOLDS[EPOCH_LENGTH + position]) {
-					potential_kill = 1;										
-					break;
-				}
-				const int b{m_src_kinetic.get4Bits()};								
+				const int b{m_src.getFourBits()};								
 				if (b & 14) {
 					position += (b & 1) - ((~b) & 1);
 				}
-				if (i % CHECKPOINT_LENGTH == 0 && i != EPOCH_LENGTH && i != 0)
+				if (i == checkpoint)
 				{
-					epoch[i / CHECKPOINT_LENGTH] = position;										
-				}				
-			}
-			if (potential_kill) {
-				continue;
+					epoch[checkpoint_index + 1] = position;
+					checkpoint_index++;
+					checkpoint = CHECKPOINTS[checkpoint_index];
+				}
+				++(m_statRecord.m_numIterations);
 			}
 			for (auto target_position : TARGET_POSITIONS)
 			{
-				if (position == target_position)
+				if (position == target_position || position == -target_position)
 				{
 					successful_epoch = 1;
 					break;
@@ -297,19 +279,24 @@ class Simulator
 	{
 		std::ofstream outFile;
 		outFile.open(m_resultsDir / m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, ".csv"));
-		outFile << "epoch" << SEPARATOR << "target_position" << SEPARATOR << "checkpoint" << SEPARATOR << "position";		
+		outFile << "epoch" << SEPARATOR << "target_position";
+		for (unsigned i = 1; i <= MAIN_CHECKPOINTS_COUNT; i++)
+		{
+			for (unsigned j = 0; j <= ADDITIONAL_CHECKPOINTS_COUNT; j++)
+			{
+				outFile << SEPARATOR << "checkpoint" << i << j << "_position";
+			}
+		}
 		outFile << "\n";
 		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i <= (m_statRecord.m_numEpochs - 1) % EPOCHS_IN_CHUNK); ++i)
 		{
-			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;			
-			for (unsigned t = 1; t < (*m_chunk)[i].size(); ++t)
+			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
+			outFile << epoch;
+			for (unsigned t = 0; t < (*m_chunk)[i].size(); ++t)
 			{
-				outFile << epoch;
-				outFile << SEPARATOR << (*m_chunk)[i][0];
-				outFile << SEPARATOR << t * CHECKPOINT_LENGTH;
 				outFile << SEPARATOR << (*m_chunk)[i][t];
-				outFile << "\n";
-			}			
+			}
+			outFile << "\n";
 		}
 		outFile.close();
 	}
@@ -324,15 +311,20 @@ class Simulator
 			{"uncompressed", parquet::Compression::UNCOMPRESSED}};
 
 		std::shared_ptr<arrow::io::FileOutputStream> outFile;
-		auto fileName = m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, "." + compressionMethod + ".parquet");
 		PARQUET_ASSIGN_OR_THROW(
-			outFile, arrow::io::FileOutputStream::Open(m_resultsDir / fileName));
+			outFile, arrow::io::FileOutputStream::Open(
+						 m_resultsDir / m_versionTag.getFilename(threadNumber, m_statRecord.m_numChunks, "." + compressionMethod + ".parquet")));
 
 		parquet::schema::NodeVector fields;
 		fields.push_back(parquet::schema::PrimitiveNode::Make("epoch", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::UINT_32));
-		fields.push_back(parquet::schema::PrimitiveNode::Make("target_position", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::INT_16));
-		fields.push_back(parquet::schema::PrimitiveNode::Make("checkpoint", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::UINT_16));
-		fields.push_back(parquet::schema::PrimitiveNode::Make("position", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::INT_32));		
+		fields.push_back(parquet::schema::PrimitiveNode::Make("target_position", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::INT_32));
+		for (unsigned i = 1; i <= MAIN_CHECKPOINTS_COUNT; i++)
+		{
+			for (unsigned j = 0; j <= ADDITIONAL_CHECKPOINTS_COUNT; j++)
+			{
+				fields.push_back(parquet::schema::PrimitiveNode::Make("checkpoint" + std::to_string(i) + std::to_string(j) + "_position", parquet::Repetition::REQUIRED, parquet::Type::INT32, parquet::ConvertedType::INT_32));
+			}
+		}
 		auto schema = std::static_pointer_cast<parquet::schema::GroupNode>(parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
 		auto props = parquet::WriterProperties::Builder().compression(compressionMap[compressionMethod])->build();
 		auto file_writer = parquet::ParquetFileWriter::Open(outFile, schema, props);
@@ -340,26 +332,20 @@ class Simulator
 
 		for (unsigned i = 0; (i < EPOCHS_IN_CHUNK) && (i <= (m_statRecord.m_numEpochs - 1) % EPOCHS_IN_CHUNK); ++i)
 		{
-			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;			
-			for (unsigned t = 1; t < (*m_chunk)[i].size(); ++t)
+			const unsigned epoch = 1 + i + (m_statRecord.m_numChunks - 1) * EPOCHS_IN_CHUNK;
+			os << epoch;
+			for (unsigned t = 0; t < (*m_chunk)[i].size(); ++t)
 			{
-				os << epoch;
-				os << (short)((*m_chunk)[i][0]);
-				os << (unsigned short) (t * CHECKPOINT_LENGTH);
 				os << (*m_chunk)[i][t];
-				os << parquet::EndRow;
-			}					
-		}
-		auto status = outFile->Close();
-		if (!status.ok()) {
-  			std::cerr << "ERROR: The parquet file " << fileName << " wasn't closed correctly" << std::endl;
+			}
+			os << parquet::EndRow;
 		}
 	}
 
 public:
 	Simulator() = delete;
-	Simulator(VersionTag versionTag, unsigned epochTargetCount, fs::path resultsDir, RandomBitSource src_kinetic, RandomBitSource src_potential,
-			  StatisticsWriter statWriter, TimeMeasurer timeMeasurer) : m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_resultsDir(resultsDir), m_src_kinetic(src_kinetic), m_src_potential(src_potential), m_statWriter(statWriter), m_timeMeasurer(timeMeasurer)
+	Simulator(VersionTag versionTag, unsigned epochTargetCount, fs::path resultsDir, RandomBitSource src,
+			  StatisticsWriter statWriter, TimeMeasurer timeMeasurer) : m_versionTag(versionTag), m_epochsTargetCount(epochTargetCount), m_resultsDir(resultsDir), m_src(src), m_statWriter(statWriter), m_timeMeasurer(timeMeasurer)
 	{
 		if (!fs::is_directory(resultsDir) || !fs::is_directory(resultsDir))
 		{
@@ -374,8 +360,7 @@ public:
 		{
 			throw std::bad_alloc();
 		}
-		m_src_kinetic.seed(threadNumber);
-		m_src_potential.seed(threadNumber);
+		m_src.seed(threadNumber);
 		while (true)
 		{
 			++(m_statRecord.m_numChunks);
@@ -387,12 +372,11 @@ public:
 				}
 				++(m_statRecord.m_numEpochs);
 				do_epoch(epoch);
-				if (m_statRecord.m_numEpochs % 50'000 == 1) {
+				if (m_statRecord.m_numEpochs % 100'000 == 1) {
 					cout << m_statRecord.m_numEpochs << " " << m_epochsTargetCount << endl;
 				}
 			}
 			cout << "Writing chunk from thread " << threadNumber << endl;
-			//writeChunkCSV(threadNumber);			
 			writeChunkParquet(threadNumber, "gzip");			
 			if (WAS_INTERRUPT || (m_statRecord.m_numEpochs >= m_epochsTargetCount))
 			{
@@ -415,30 +399,17 @@ void make_interrupt(int s)
 	WAS_INTERRUPT = 1;
 }
 
-void init_thresholds() {
-	double GROUND_LEVEL = -0.022853486019047613;
-	double MAX_VALUE = pow(2., -32);	
-	for (int x = -EPOCH_LENGTH; x <= static_cast<int>(EPOCH_LENGTH); x++) {		
-		unsigned i = x + EPOCH_LENGTH;
-		double energy = -8. / 7. / 1000. * 4. / 3. * x + GROUND_LEVEL;		
-		uint64_t threshold = exp(energy / 1000) / MAX_VALUE;
-		POTENTIAL_THRESHOLDS[i] = (threshold <= MAX_UINT32) ? round(threshold) : MAX_UINT32;
-	}
-}
-
 int main(int argc, char **argv)
 {
 	const unsigned epochsTargetCount{argc >= 2 ? std::stoi(argv[1]) : DEFAULT_EPOCHS_TARGET_COUNT};
 	const unsigned threadsCount{argc >= 3 ? std::stoi(argv[2]) : DEFAULT_THREADS_COUNT};
-	const fs::path resultsDir = {argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR};	
+	const fs::path resultsDir = {argc >= 4 ? argv[3] : DEFAULT_RESULTS_DIR};
 	const TimeMeasurer timeMeasurer;
 	const VersionTag versionTag{TAG, EXPERIMENT_NUMBER, HYPOTHESIS_NUMBER, IMPLEMENTATION_NUMBER,
 								timeMeasurer.getProgramTimestamp()};
 	const StatisticsWriter statWriter{threadsCount, timeMeasurer, versionTag, resultsDir};
-	RandomBitSource kinetic_src;
-	RandomBitSource potential_src;
-	Simulator sim{versionTag, epochsTargetCount, resultsDir, kinetic_src, potential_src, statWriter, timeMeasurer};
-	init_thresholds();
+	RandomBitSource src;
+	Simulator sim{versionTag, epochsTargetCount, resultsDir, src, statWriter, timeMeasurer};
 	std::signal(SIGINT, make_interrupt);
 	std::vector<pid_t> pids(threadsCount);
 	for (unsigned threadNumber = 1; threadNumber <= pids.size(); ++threadNumber)
