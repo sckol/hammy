@@ -27,7 +27,7 @@ namespace fs = std::filesystem;
 const string TAG = "lagrangian";
 const unsigned EXPERIMENT_NUMBER = 2;
 const unsigned HYPOTHESIS_NUMBER = 1;
-const unsigned IMPLEMENTATION_NUMBER = 1;
+const unsigned IMPLEMENTATION_NUMBER = 2;
 
 const unsigned EPOCH_LENGTH{6'000};
 const unsigned EPOCHS_IN_CHUNK{10'000'000};
@@ -350,10 +350,6 @@ class Simulator
 				os << parquet::EndRow;
 			}					
 		}
-		auto status = outFile->Close();
-		if (!status.ok()) {
-  			std::cerr << "ERROR: The parquet file " << fileName << " wasn't closed correctly" << std::endl;
-		}
 	}
 
 public:
@@ -416,7 +412,7 @@ void make_interrupt(int s)
 }
 
 void init_thresholds() {
-	double GROUND_LEVEL = -0.022853486019047613;
+	double GROUND_LEVEL = -0.16152380912;
 	double MAX_VALUE = pow(2., -32);	
 	for (int x = -EPOCH_LENGTH; x <= static_cast<int>(EPOCH_LENGTH); x++) {		
 		unsigned i = x + EPOCH_LENGTH;

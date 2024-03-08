@@ -1,6 +1,6 @@
 #!/bin/bash
-if [[ $# -lt 3 ]] ; then
-    echo 'Provide 3 arguments: version, number of iterations per core, number of cores'
+if [[ $# -lt 4 ]] ; then
+    echo 'Provide 4 arguments: version, number of iterations per core, number of cores, boot disk'
     exit 0
 fi
 yc compute instance create-with-container \
@@ -14,5 +14,6 @@ yc compute instance create-with-container \
   --container-privileged \
   --ssh-key ~/.ssh/id_rsa.pub \
   --service-account-name compute \
+  --create-boot-disk size="$4" \
   --async \
   --public-ip

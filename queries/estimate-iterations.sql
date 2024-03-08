@@ -4,7 +4,7 @@ insert into function s3(
 ) 
 with src as (
   select *
-  from s3('s3:///hammy/lagrangian/2/1/raw/lagrangian_*.gzip.parquet', Parquet)),
+  from s3('s3:///hammy/lagrangian/2/1/raw/lagrangian_2_1-2*.gzip.parquet', Parquet)),
 cnts as (
   select target_position, checkpoint, position, count(*) as cnt,
     row_number() over (partition by target_position, checkpoint order by cnt desc) rn
