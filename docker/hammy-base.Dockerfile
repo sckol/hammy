@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM nvidia/cuda:12.3.2-runtime-ubuntu22.04
 USER root
 
 RUN apt update
