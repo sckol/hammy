@@ -1,19 +1,19 @@
 #!/bin/bash
-if [[ $# -lt 4 ]] ; then
-    echo 'Provide 4 arguments: version, number of iterations per core, number of cores, boot disk'
+set -e
+if [[ $# -lt 2 ]] ; then
+    echo 'Provide 2 arguments: version, number of minutes'
     exit 0
 fi
+sed  -e "s/XXX/$1/" -e "s/YYY/$2/" hammy_machine.compose > hammy_machine.compose.tmp
 yc compute instance create-with-container \
-  --cores "$3" \
-  --memory "$3"G \
-  --zone ru-central1-d \
+  --cores 8 \
+  --gpus 1 \
+  --memory 48G \
+  --zone ru-central1-a \
   --preemptible \
-  --platform standard-v3 \
-  --container-arg "$2" --container-arg "$3" \
-  --container-image "cr.yandex/crpse3p7sm03fmuqh8ft/hammy:$1" \
-  --container-privileged \
+  --platform gpu-standard-v2 \
   --ssh-key ~/.ssh/id_rsa.pub \
   --service-account-name compute \
-  --create-boot-disk size="$4" \
+  --docker-compose-file hammy_machine.compose.tmp \
   --async \
   --public-ip

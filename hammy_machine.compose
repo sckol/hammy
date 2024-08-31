@@ -1,0 +1,12 @@
+services:
+  hammy:
+    privileged: true
+    image: sckol/hammy:XXX
+    command: "YYY" 
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

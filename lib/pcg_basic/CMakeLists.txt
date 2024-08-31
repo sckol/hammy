@@ -1,0 +1,1 @@
+add_library(pcg_basic pcg_basic.c)

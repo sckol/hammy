@@ -76,6 +76,7 @@
         "cfenv": "cpp",
         "typeindex": "cpp",
         "valarray": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "pcg_basic.h": "c"
     }
 }

@@ -18,7 +18,7 @@ log_line() {
     last_call[$level]="$current_timestamp"
     printf "c_global=$c_global\n$(declare -p c_local)\n$(declare -p last_call)" > "$shared_file"
     if ((c_local[$level] == max_lines )); then
-      postfix="...~"
+      postfix="...~$LYC_ML"
     else
       postfix=""
     fi       
@@ -39,7 +39,7 @@ log_line() {
 log_yc() {
   shared_file=$(mktemp)
   timeout="${LYC_T:-5}"
-  max_lines="${LYC_ML:-5}"
+  max_lines="${LYC_ML:-50}"
   script="$1"
   shift
   printf "c_global=0\ndeclare -A c_local=( [INFO]=0 [ERROR]=0 )\ndeclare -A last_call=( [ERROR]=0 [INFO]=0 )" > "$shared_file"

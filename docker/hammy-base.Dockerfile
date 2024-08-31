@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.3.2-runtime-ubuntu22.04
+FROM cupy/cupy:v13.1.0
 USER root
 
 RUN apt update

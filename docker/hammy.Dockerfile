@@ -1,11 +1,12 @@
-FROM cr.yandex/crpse3p7sm03fmuqh8ft/hammy-base:latest
+FROM sckol/hammy-base:4.0fix
 WORKDIR /root
-RUN apt update && apt install -y pip && pip install s3cmd python-magic
-RUN apt install -y libbrotli-dev libbz2-dev libcurl4-openssl-dev liblz4-dev \ 
-  libc-ares-dev libre2-dev libsnappy-dev libssl-dev libutf8proc-dev libzstd-dev \
-  nlohmann-json3-dev protobuf-compiler-grpc zlib1g-dev libthrift-dev
+RUN pip install cffi boto3 psutil pickle-blosc
+RUN apt-get install wget unzip
+RUN wget -q https://www.pcg-random.org/downloads/pcg-c-basic-0.9.zip && \
+  unzip -q -p pcg-c-basic-0.9.zip pcg-c-basic-0.9/pcg_basic.c > pcg_basic.c && \
+  unzip -q -p pcg-c-basic-0.9.zip pcg-c-basic-0.9/pcg_basic.h > pcg_basic.h
 COPY docker/hammy.sh /root/main.sh
-COPY build/hammy \
-  docker/.s3cfg \
+COPY simulator/hamlitonian/3/1/hamiltonian_3_1.py hammy.py
+COPY docker/.s3cfg \
   docker/s3_access_key_id.cipher \
   docker/s3_secret_access_key.cipher /root  
