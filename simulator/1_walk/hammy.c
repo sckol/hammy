@@ -1,7 +1,7 @@
 #include "pcg_basic.h"
 
 #define T 1000
-#define LOOPS 82500
+#define LOOPS 23200
 int TARGETS[] = {0,1,2,5,10};
 #define TARGETS_LEN 5
 int CHECKPOINTS[] = {100,200,300,400,500,600,700,800,900,1000};
@@ -89,14 +89,16 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
   for  (int i = 1; i < 32; ++i) {
     for (int j = 0; j <= sizeof(*counts) / sizeof(****counts) / 32; j++) {
       int idx = j * 32 + TID_LOCAL;
-      if (j * 32 + TID_LOCAL < sizeof(*counts) / sizeof(***counts)){
+      if (j * 32 + TID_LOCAL < sizeof(*counts) / sizeof(***counts)) {
         ((int *) counts[0])[j * 32 + TID_LOCAL] += ((int *) counts[i])[j * 32 + TID_LOCAL];
       }
     }
   }
   __SYNCTHREADS
   for (int i = 0; i <= sizeof(*counts) / sizeof(****counts) / 32; ++i) {
-    out[i * 32 + TID_LOCAL] = ((long long *) counts)[i * 32 + TID_LOCAL];
+    if (i * 32 + TID_LOCAL < sizeof(*counts) / sizeof(****counts)) {
+      out[i * 32 + TID_LOCAL] = ((long long *) counts[0])[i * 32 + TID_LOCAL];
+    }
   }  
   __WARP_END
 }
@@ -107,4 +109,5 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
 int main() {
   unsigned long long out[TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
   run(1111111111, (long long *) &out);
+  1+1;
 }
