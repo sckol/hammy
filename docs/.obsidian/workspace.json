@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "README.md",
+                "file": "experiments/1_walk.md",
                 "mode": "source",
                 "source": false
               }
@@ -85,7 +85,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "README.md",
+                "file": "experiments/1_walk.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -102,7 +102,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "README.md",
+                "file": "experiments/1_walk.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -125,7 +125,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "README.md"
+                "file": "experiments/1_walk.md"
               }
             }
           }
@@ -147,5 +147,9 @@
     }
   },
   "active": "c76d47f2ade9a894",
-  "lastOpenFiles": []
+  "lastOpenFiles": [
+    "README.md",
+    "experiments/1_walk.md",
+    "experiments"
+  ]
 }
