@@ -1,0 +1,12 @@
+# Overview
+Consider a one-dimensional random walk, where at each step the particle moves either in the positive or negative direction from a fixed starting point. The length of the walk is fixed and equal to `T`. Choose only those walks where the final position of the particle is on the set `TARGETS`, e.g. walks ending at 0, 1 or 5 from the starting point in positive direction. For each element in this set we compute a *statistic*. In this experiment the statistics we collect is the distribution of the particle's positions at intermediate steps between the start and the end of the walk, for example after 100, 200, 300, ... steps. This set is called `CHECKPOINTS`.
+
+Then we transform this statistic into a single value that is defined for each step. This value defines the *trajectory* of the particle. Different end positions define different trajectories because we have considered the statistics for them separately. 
+
+The function that transforms the statistics into a trajectory is what we call a *trajectory function*. An example of a trajectory function is the *empirical mode* (the most frequent value of the statistics). In this case the domain of the function is the nodes of the graph where the walk takes place, i. e. one dimensional discrete lattice.
+
+The desirable property of the trajectory function is that it is independent of the labelling of the graph nodes. In this experiment, there is a natural way to label the graph nodes by their distance and direction from the starting point. We can calculate the mean and variance of the particle positions. But for a general graph there is no such labelling and we need to choose a trajectory function that does not rely on it. The empirical mode is such a function, but it is not well defined for each checkpoint.
+
+For example, consider a random walk of length 1000 with target 9 at checkpoint 500. There are two empirical modes: 4 and 5, so we must either consider the trajectory function to be multivalued or define an algorithm to resolve such collisions. Furthermore, such collisions are not easy to detect. In practice, if we have a fixed number of simulations with a high probability, we will have a single empirical mode randomly chosen between 4 and 5.
+
+# Implementation details

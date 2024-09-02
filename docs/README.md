@@ -31,5 +31,17 @@ We keep separate datasets of simulation results for:
 Hypotheses are tested on the different datasets to identify any discrepancies (which may indicate bugs) and finally on the aggregated data.
 
 ## Utilities
+The `docker` folder contains files for running experiments in Yandex Cloud using [Container Solution](https://yandex.cloud/en/docs/cos/). The `hammy-base.Dockerfile' is an image with the following features
+- Python is installed with CuPy
+- Yandex Cloud Monitoring is enabled, which allows you to monitor CPU and memory usage in real time.
+- the logs of the main script (which must be named as `main.sh` in the descendant images) are redirected to Yandex Cloud Logging using the `log_yc` bash function
+- The main script is executed in a wrapper `hammy_entrypoint.sh`, which at the end of the main script's execution either deletes the machine (default) or shuts it down (do-nothing option is also available).
+- A `run_nice` bash function is available which sets a lower priority for the main script, to ensure that the monitoring and wrapper processes continue to work even if the main script exhausts memory or CPU.
 
-# Naming conventions
+An example of a `hammy-base` descendant image is in `chquery.Dockerfile`. It runs a Clickhouse instance connected to Yandex Cloud Storage as an S3 bucker, and passes a query from the container's `CMD` argument (allowing different queries to be run using the same image). Clickhouse can take the data from the S3 bucker and return query results to it. This allows Clickhouse to be used as part of a data processing pipeline. The script `create_query_machine.sh` runs a virtual machine in Yandex Cloud with this image and passes the content of the given file as `CMD` argument.
+
+Sometimes when writing queries you may want to use variable substitution or cycles (for example, if you have a table with many columns `position_1`, `position_2`, ...). The `process_jinja.py` script allows you to write queries as [Jinja](https://jinja.palletsprojects.com/) templates and the script will convert them into regular SQL files.
+
+The `create_hammy_machine.sh` starts a virtual machine with GPU support from a Docker image for the given experiment name.
+# Experiment list
+## Naming conventions
