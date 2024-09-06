@@ -89,7 +89,7 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
   for  (int i = 1; i < 32; ++i) {
     for (int j = 0; j <= sizeof(*counts) / sizeof(****counts) / 32; j++) {
       int idx = j * 32 + TID_LOCAL;
-      if (j * 32 + TID_LOCAL < sizeof(*counts) / sizeof(***counts)) {
+      if (j * 32 + TID_LOCAL < sizeof(*counts) / sizeof(****counts)) {
         ((int *) counts[0])[j * 32 + TID_LOCAL] += ((int *) counts[i])[j * 32 + TID_LOCAL];
       }
     }
