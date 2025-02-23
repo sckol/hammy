@@ -13,7 +13,7 @@ The **hammy** project aims to demonstrate these concepts and explore the corresp
 
 # Structure
 
-**hammy** consists of a series of experiments, each running simulations of random walks, calculating their statistics, and interpreting them in physical terms. These experiments are conducted in Jupyter Notebooks. Some experiments require substantial computational resources (memory, CPUs, and GPUs), so utilities were developed to facilitate running experiments in Yandex Cloud efficiently and cost-effectively.
+**hammy** consists of a series of experiments, each running simulations of random walks, calculating their statistics, and interpreting them in physical terms. These experiments are conducted in Jupyter Notebooks. Some experiments require substantial computational resources (memory, CPUs, and GPUs), so utilities were developed to facilitate running experiments in a cloud environment efficiently and cost-effectively.
 
 Code for experiments and utilities is [available on GitHub](https://github.com/sckol/hammy).
 

@@ -4,3 +4,8 @@
 /.ssh
 /build
 /hammy_machine.compose.tmp
+/venv
+.env
+Release
+Debug
+dbt/logs
