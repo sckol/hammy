@@ -18,7 +18,7 @@ jobs:
         docker run --rm \
           -v "$(pwd)/hammy-docs:/root/vault" \
           -v "$(pwd)/hammy-docs-html:/root/vault_html" \
-          adventum/obsidian-exporter
+          adventum/obsidian-exporter:0.1.1
 
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
