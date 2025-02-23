@@ -14,7 +14,6 @@ jobs:
       uses: actions/checkout@v3
 
     - name: Convert Obsidian Vault to HTML
-      uses: addnab/docker-run-action@v3
       run: |
         docker run --rm \
           -v "$(pwd)/hammy-docs:/root/vault" \
