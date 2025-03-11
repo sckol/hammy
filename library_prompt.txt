@@ -1,0 +1,20 @@
+Write a python library that will allow to do Python numeric experiments in the following way. 
+Each experiment consists of multiple simulations. Simulation is a single run of a simulation script for a fixed number of loops.
+Simulation scripts can be of three types:
+- numpy (for CPU)
+- CFFI script (for CPU)
+- CUDA (for GPU).
+Loops is an independent building block of experiment in the sense that each loop run doesn't depend on other. Each loop contains some randomity,
+and the aim of experiment is to get statistical distribution of i.i.d. loop results. The logic of different script types is identical,
+but implementation is different in order to cross-check the implementation correctness.
+
+Each simulation script has three input arguments: the number of loops and the memory area where to write the results and the random seed. 
+numpy script is a Python function that write the results in xarray. CFFI and CUDA write results in memory array, and the library maps this array to Pythonic xarray.
+So, eventually each simulation result is an xarray.
+
+The simulations are made so that their results can be added with each other. However, the library keeps them separately in order to compare different implementations.
+The library can work in development, calibration and production modes. In the development mode it allows to run any number of loops with any type of simulation script.
+In the calibration mode it measures, how many loops it is possible to run per minute for any type. And in production mode it manages the simulations.
+The simulations in production mode runs simultaneously, CUDA on GPU, numpy on one CPU core and CFFI on the remaining CPU cores. 
+Also, the simulations are  grouped into levels. At the first and second levels the number of loops for each simulation type is so that it requires approximately one minute.
+The following levels obey degrees of two: 2, 4, 8, 16, 32 etc. minutes. This allows to sum the results and see how their changes after N, 2N, 4N, 8N, 16N, 32N, 64N of loops.
