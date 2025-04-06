@@ -7,28 +7,16 @@ int CHECKPOINTS[] = {100,200,300,400,500,600,700,800,900,1000};
 #define BINS_MIN -50
 #define BINS_MAX 50
 #define BINS_LEN 101
-STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
 
-#ifdef CFFI
-
-#define T 1000
-int TARGETS[] = {0,1,2,5,10};
-#define TARGETS_LEN 5
-int CHECKPOINTS[] = {100,200,300,400,500,600,700,800,900,1000};
-#define CHECKPOINTS_LEN 10
-#define BINS_MIN -50
-#define BINS_MAX 50
-#define BINS_LEN 101
-STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
-
-#ifndef GPU
-#ifndef CFFI
-#include "pcg_basic/pcg_basic.h"
-#include "cuda_cpu.h"
-#endif
-#define BLOCKS 1
-#else
+#ifdef USE_CUDA
 #include <curand.h>
+#else
+#define BLOCKS 1
+#ifdef _WIN32
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 #endif
 #define TID (threadIdx.x + blockIdx.x * blockDim.x)
 #define TID_LOCAL threadIdx.x
@@ -38,31 +26,9 @@ STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
   } \
 }
 #define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
-#define __EXTERN
-#define __global__
-#define __shared__
-#define __device__
-#define _32 [32]
-#define _ [threadIdx.x]
-typedef pcg32_random_t curandStateXORWOW_t;
-void curand_init(unsigned long long seed, unsigned long long sequence, unsigned long long offset, curandStateXORWOW_t *state) {
-  pcg32_srandom_r(state, seed + sequence, offset);
-}
-unsigned int curand(curandStateXORWOW_t *state) {
-  return pcg32_random_r(state);
-}
-struct ThreadCounter {
-  int x;
-  int y;
-  int z;
-};
-void atomicAdd(unsigned long long int* address, unsigned long long int val) {
-    *address += val;
-}
-#define __WARP_INIT for(struct ThreadCounter threadIdx = {0, 0, 0}; threadIdx.x < 32; ++threadIdx.x) { struct ThreadCounter blockIdx = {0, 0, 0}; struct ThreadCounter blockDim = {0, 0, 0};
-#define __SYNCTHREADS } __WARP_INIT
-#define __WARP_END }
+#ifdef USE_CUDA
 
+#else
 /*
  * PCG Random Number Generation for C.
  *
@@ -142,33 +108,29 @@ uint32_t pcg32_boundedrand_r(pcg32_random_t* rng, uint32_t bound);
 
 #endif // PCG_BASIC_H_INCLUDED
 
-#else
-
-#define T 1000
-int TARGETS[] = {0,1,2,5,10};
-#define TARGETS_LEN 5
-int CHECKPOINTS[] = {100,200,300,400,500,600,700,800,900,1000};
-#define CHECKPOINTS_LEN 10
-#define BINS_MIN -50
-#define BINS_MAX 50
-#define BINS_LEN 101
-STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
-
-#ifndef GPU
-#ifndef CFFI
-#include "pcg_basic/pcg_basic.h"
-#include "cuda_cpu.h"
-#endif
-#define BLOCKS 1
-#else
-#include <curand.h>
-#endif
-#define TID (threadIdx.x + blockIdx.x * blockDim.x)
-#define TID_LOCAL threadIdx.x
-#define ZERO(arr, type, aligned) for (int _i = 0; _i + aligned <= sizeof(arr) / sizeof(type) / 32; ++_i) { \
-  if (aligned || (_i * 32 + TID_LOCAL < sizeof(arr) / sizeof(type))) { \
-    ((type *) arr)[_i * 32 + TID_LOCAL] = 0; \
-  } \
+#define __EXTERN
+#define __global__
+#define __shared__
+#define __device__
+#define _32 [32]
+#define _ [threadIdx.x]
+typedef pcg32_random_t curandStateXORWOW_t;
+void curand_init(unsigned long long seed, unsigned long long sequence, unsigned long long offset, curandStateXORWOW_t *state) {
+  pcg32_srandom_r(state, seed + sequence, offset);
 }
-#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
+unsigned int curand(curandStateXORWOW_t *state) {
+  return pcg32_random_r(state);
+}
+struct ThreadCounter {
+  int x;
+  int y;
+  int z;
+};
+void atomicAdd(unsigned long long int* address, unsigned long long int val) {
+    *address += val;
+}
+#define __WARP_INIT for(struct ThreadCounter threadIdx = {0, 0, 0}; threadIdx.x < 32; ++threadIdx.x) { struct ThreadCounter blockIdx = {0, 0, 0}; struct ThreadCounter blockDim = {0, 0, 0};
+#define __SYNCTHREADS } __WARP_INIT
+#define __WARP_END }
+
 #endif

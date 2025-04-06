@@ -570,6 +570,111 @@ static void (*_cffi_call_python_org)(struct _cffi_externpy_s *, char *);
 
 /************************************************************/
 
+#define FROM_PYTHON
+
+#define T 1000
+int TARGETS[] = {0,1,2,5,10};
+#define TARGETS_LEN 5
+int CHECKPOINTS[] = {100,200,300,400,500,600,700,800,900,1000};
+#define CHECKPOINTS_LEN 10
+#define BINS_MIN -50
+#define BINS_MAX 50
+#define BINS_LEN 101
+
+#ifndef USE_CUDA
+#define BLOCKS 1
+#else
+#include <curand.h>
+#endif
+#define TID (threadIdx.x + blockIdx.x * blockDim.x)
+#define TID_LOCAL threadIdx.x
+#define ZERO(arr, type, aligned) for (int _i = 0; _i + aligned <= sizeof(arr) / sizeof(type) / 32; ++_i) { \
+  if (aligned || (_i * 32 + TID_LOCAL < sizeof(arr) / sizeof(type))) { \
+    ((type *) arr)[_i * 32 + TID_LOCAL] = 0; \
+  } \
+}
+#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
+#ifdef USE_CUDA
+
+#else
+/*
+ * PCG Random Number Generation for C.
+ *
+ * Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * For additional information about the PCG random number generation scheme,
+ * including its license and other licensing options, visit
+ *
+ *     http://www.pcg-random.org
+ */
+
+/*
+ * This code is derived from the full C implementation, which is in turn
+ * derived from the canonical C++ PCG implementation. The C++ version
+ * has many additional features and is preferable if you can use C++ in
+ * your project.
+ */
+
+#ifndef PCG_BASIC_H_INCLUDED
+#define PCG_BASIC_H_INCLUDED 1
+
+#include <inttypes.h>
+
+#if __cplusplus
+extern "C" {
+#endif
+
+struct pcg_state_setseq_64 {    // Internals are *Private*.
+    uint64_t state;             // RNG state.  All values are possible.
+    uint64_t inc;               // Controls which RNG sequence (stream) is
+                                // selected. Must *always* be odd.
+};
+typedef struct pcg_state_setseq_64 pcg32_random_t;
+
+// If you *must* statically initialize it, here's one.
+
+#define PCG32_INITIALIZER   { 0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL }
+
+// pcg32_srandom(initstate, initseq)
+// pcg32_srandom_r(rng, initstate, initseq):
+//     Seed the rng.  Specified in two parts, state initializer and a
+//     sequence selection constant (a.k.a. stream id)
+
+void pcg32_srandom(uint64_t initstate, uint64_t initseq);
+void pcg32_srandom_r(pcg32_random_t* rng, uint64_t initstate,
+                     uint64_t initseq);
+
+// pcg32_random()
+// pcg32_random_r(rng)
+//     Generate a uniformly distributed 32-bit random number
+
+uint32_t pcg32_random(void);
+uint32_t pcg32_random_r(pcg32_random_t* rng);
+
+// pcg32_boundedrand(bound):
+// pcg32_boundedrand_r(rng, bound):
+//     Generate a uniformly distributed number, r, where 0 <= r < bound
+
+uint32_t pcg32_boundedrand(uint32_t bound);
+uint32_t pcg32_boundedrand_r(pcg32_random_t* rng, uint32_t bound);
+
+#if __cplusplus
+}
+#endif
+
+#endif // PCG_BASIC_H_INCLUDED
 
 #define __EXTERN
 #define __global__
@@ -595,27 +700,14 @@ void atomicAdd(unsigned long long int* address, unsigned long long int val) {
 #define __WARP_INIT for(struct ThreadCounter threadIdx = {0, 0, 0}; threadIdx.x < 32; ++threadIdx.x) { struct ThreadCounter blockIdx = {0, 0, 0}; struct ThreadCounter blockDim = {0, 0, 0};
 #define __SYNCTHREADS } __WARP_INIT
 #define __WARP_END }
-#define TID (threadIdx.x + blockIdx.x * blockDim.x)
-#define TID_LOCAL threadIdx.x
-#define ZERO(arr, type, aligned) for (int _i = 0; _i + aligned <= sizeof(arr) / sizeof(type) / 32; ++_i) {   if (aligned || (_i * 32 + TID_LOCAL < sizeof(arr) / sizeof(type))) {     ((type *) arr)[_i * 32 + TID_LOCAL] = 0;   } }
 
-#include "pcg_basic.h"
-#define BLOCKS 1
-
-#define T {N.T}
-#define LOOPS { loops }
-#define BLOCKS { blocks }
-int TARGETS[] = {{{",".join([str(x) for x in N.TARGETS])}}};
-#define TARGETS_LEN { N.TARGETS_LEN }
-int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
-#define CHECKPOINTS_LEN { N.CHECKPOINTS_LEN }
-#define BINS_MIN { N.BINS_TUPLE[0] }
-#define BINS_MAX { N.BINS_TUPLE[1] - 1 }
-#define BINS_LEN { N.BINS_LEN }
-#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
+#endif
+#ifndef FROM_PYTHON
+#include "walk.h"
+#endif
 STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
 __device__ unsigned long long counts [BLOCKS][32][TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
-__EXTERN __global__ void run(const unsigned long long seed,  unsigned long long* out) {
+__EXTERN __global__ void run(unsigned long long loops, const unsigned long long seed,  unsigned long long* out) {
   __shared__ int positions[CHECKPOINTS_LEN][32];
   curandStateXORWOW_t state _32;
   unsigned int rnd _32;
@@ -625,7 +717,7 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
   rnd_left _ = 0;
   ZERO(counts[blockIdx.x], unsigned long long, 1)
   __WARP_END
-  for(int _loop = 0; _loop < LOOPS; ++_loop) {
+  for(int _loop = 0; _loop < loops; ++_loop) {
     __WARP_INIT
     ZERO(positions, unsigned int, 1)
     int checkpoint = 0;
@@ -682,6 +774,11 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
   __WARP_END
 }
 
+int main() {
+  unsigned long long out[TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
+  run(5, 1111111111, (long long *) &out);
+  1+1;
+}
 
 /************************************************************/
 

@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.0.0)
 project(hammy VERSION 0.1.0 LANGUAGES C)
 
-# Add include directories
-include_directories(${CMAKE_SOURCE_DIR}/hammy-lib)
-include_directories(${CMAKE_SOURCE_DIR}/hammy-lib/c-libs)
+if(CMAKE_CUDA_COMPILER)    
+    target_compile_options(cuda_test_cu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-g -G>)
+    set_target_properties(cuda_test_cu PROPERTIES CUDA_ARCHITECTURES "70")
+    add_compile_definitions(USE_CUDA)
+    message(STATUS "CUDA compiler found: ${CMAKE_CUDA_COMPILER}")
+else()
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hammy-lib/c-libs/pcg_basic)
+endif()
 
 # Function to get subdirectories
 function(get_subdirs result dir)
@@ -17,21 +22,6 @@ function(get_subdirs result dir)
     set(${result} ${dirlist} PARENT_SCOPE)
 endfunction()
 
-# Process libraries
-get_subdirs(libs ${CMAKE_CURRENT_SOURCE_DIR}/hammy-lib/c-libs)
-if(libs)
-    foreach(lib ${libs})
-        message(STATUS "Processing library: ${lib}")
-        if(EXISTS ${lib}/CMakeLists.txt)
-            add_subdirectory(${lib})            
-        else()
-            message(WARNING "No CMakeLists.txt found in library directory: ${lib}")
-        endif()
-    endforeach()
-else()
-    message(WARNING "No library directories found")
-endif()
-
 # Process experiments
 get_subdirs(experiments ${CMAKE_CURRENT_SOURCE_DIR}/experiments)
 if(experiments)
@@ -44,9 +34,12 @@ if(experiments)
         if(underscore_pos GREATER -1)
             math(EXPR after_underscore "${underscore_pos} + 1")
             string(SUBSTRING ${exp_name} ${after_underscore} -1 base_name)
-            if(EXISTS ${experiment}/${base_name}.c)
+            if(EXISTS ${experiment}/${base_name}.c)            
+                include_directories(${experiment})
                 add_executable(${base_name} ${experiment}/${base_name}.c)
-                target_link_libraries(${base_name} PRIVATE pcg_basic)
+                if (NOT DEFINED CMAKE_CUDA_COMPILER)
+                    target_link_libraries(${base_name} pcg_basic)
+                endif()
                 message(STATUS "Added executable: ${base_name}")
             else()
                 message(WARNING "Source file not found: ${experiment}/${base_name}.c")
@@ -59,11 +52,3 @@ else()
     message(WARNING "No experiment directories found")
 endif()
 
-
-
-# Optional CUDA support
-if(CMAKE_CUDA_COMPILER)
-    add_executable(cuda_test_cu cuda_test.cu)
-    target_compile_options(cuda_test_cu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-g -G>)
-    set_target_properties(cuda_test_cu PROPERTIES CUDA_ARCHITECTURES "70")
-endif()

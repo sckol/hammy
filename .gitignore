@@ -3,6 +3,7 @@
 /.cache
 /.ssh
 /build
+/build-cffi
 /hammy_machine.compose.tmp
 /venv
 .env
@@ -10,3 +11,4 @@ Release
 Debug
 dbt/logs
 hammy-docs/.obsidian/workspace.json
+__pycache__/

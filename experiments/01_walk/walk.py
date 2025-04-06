@@ -1,6 +1,6 @@
 import xarray as xr
 import numpy as np
-from hammy import SimulatorConstants, Simulator, SimulatorPlatforms, CCode, Experiment
+from hammy import Simulator, SimulatorPlatforms, CCode, Experiment
 
 EXPERIMENT = Experiment(1, "walk")
 
@@ -47,7 +47,8 @@ def simulate(loops: int, out: xr.DataArray, seed: int) -> None:
         for c in range(N.CHECKPOINTS_LEN):
             out[target_idx, c, :] += np.histogram(data[data[:, -1] == target, c], bins=N.BINS)[0]
 
-C_DEFINITIONS = f"""
+if __name__ == "__main__":
+  C_DEFINITIONS = f"""
 #define T {N.T}
 int TARGETS[] = {{{",".join([str(x) for x in N.TARGETS])}}};
 #define TARGETS_LEN { N.TARGETS_LEN }
@@ -56,11 +57,8 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
 #define BINS_MIN { N.BINS_TUPLE[0] }
 #define BINS_MAX { N.BINS_TUPLE[1] - 1 }
 #define BINS_LEN { N.BINS_LEN }
-STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
 """
-
-
-C_CODE = CCode(EXPERIMENT.get_path() / "walk.c", C_DEFINITIONS)
-
-simulator = Simulator(EXPERIMENT, N, simulate, C_CODE)
-#print(simulator.run_calibration(SimulatorPlatforms.PYTHON))
+  C_CODE = CCode(EXPERIMENT.get_path() / "walk.c", C_DEFINITIONS)
+  simulator = Simulator(N, simulate, C_CODE, threads=1, seed=0)
+  #print(simulator.run_calibration(SimulatorPlatforms.CFFI))
+  simulator.run_parallel_simulations(1000, 1)

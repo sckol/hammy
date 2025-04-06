@@ -1,8 +1,10 @@
-#ifndef CFFI
+#ifndef FROM_PYTHON
 #include "walk.h"
 #endif
+
+STATIC_ASSERT(BINS_LEN == BINS_MAX - BINS_MIN + 1, bins_len_does_not_match);
 __device__ unsigned long long counts [BLOCKS][32][TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
-__EXTERN __global__ void run(const unsigned long long seed,  unsigned long long* out) {
+__EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const unsigned long long seed,  unsigned long long* out) {
   __shared__ int positions[CHECKPOINTS_LEN][32];
   curandStateXORWOW_t state _32;
   unsigned int rnd _32;
@@ -12,7 +14,7 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
   rnd_left _ = 0;
   ZERO(counts[blockIdx.x], unsigned long long, 1)
   __WARP_END
-  for(int _loop = 0; _loop < LOOPS; ++_loop) {
+  for(int _loop = 0; _loop < loops; ++_loop) {
     __WARP_INIT
     ZERO(positions, unsigned int, 1)
     int checkpoint = 0;
@@ -71,6 +73,6 @@ __EXTERN __global__ void run(const unsigned long long seed,  unsigned long long*
 
 int main() {
   unsigned long long out[TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
-  run(1111111111, (long long *) &out);
+  run_simulation(5, 1111111111, (long long *) &out);
   1+1;
 }

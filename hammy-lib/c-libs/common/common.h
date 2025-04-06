@@ -1,11 +1,12 @@
-#ifndef GPU
-#ifndef CFFI
-#include "pcg_basic/pcg_basic.h"
-#include "cuda_cpu.h"
-#endif
-#define BLOCKS 1
-#else
+#ifdef USE_CUDA
 #include <curand.h>
+#else
+#define BLOCKS 1
+#ifdef _WIN32
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 #endif
 #define TID (threadIdx.x + blockIdx.x * blockDim.x)
 #define TID_LOCAL threadIdx.x
