@@ -45,16 +45,16 @@ class Simulator:
     ffi = FFI()     
     ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
     ffi_libs = ["pcg_basic"]
-    ffi_sources = [str(Path(__file__).parent / "c-libs" / lib / f"{lib}.c") 
+    ffi_sources = [str(Path(__file__).parent / "c_libs" / lib / f"{lib}.c") 
       for lib in ffi_libs]
     ffi.set_source("hammy_cpu_kernel", ffi_source, sources=ffi_sources)
     ffi.cdef(c_code.function_header)
-    output_dir = Path().parent / "build-cffi"
+    output_dir = Path().parent / "build_cffi"
     ffi.compile(verbose=True, tmpdir=str(output_dir), target=str("hammy_cpu_kernel_lib.*"))
 
   def cffi_simulator(self, loops: int, out: xr.DataArray, seed: int) -> None:
     ffi = FFI()
-    lib = ffi.dlopen(str(list((Path.cwd() / 'build-cffi').glob("hammy_cpu_kernel_lib.*"))[0]))
+    lib = ffi.dlopen(str(list((Path.cwd() / 'build_cffi').glob("hammy_cpu_kernel_lib.*"))[0]))
     ffi.cdef(self.c_code.function_header)
     buffer = ffi.cast("unsigned long long*", ffi.from_buffer(out.values))
     lib.run_simulation(loops, seed, buffer)

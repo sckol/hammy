@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/experiments/01_walk/walk.py",
             "console": "integratedTerminal",
             "env": {
-                "PYTHONPATH": "${workspaceFolder}/hammy-lib"
+                "PYTHONPATH": "${workspaceFolder}/hammy_lib"
             }
         },
 

@@ -7,7 +7,7 @@ if(CMAKE_CUDA_COMPILER)
     add_compile_definitions(USE_CUDA)
     message(STATUS "CUDA compiler found: ${CMAKE_CUDA_COMPILER}")
 else()
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hammy-lib/c-libs/pcg_basic)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hammy_lib/c_libs/pcg_basic)
 endif()
 
 # Function to get subdirectories

@@ -1,14 +1,6 @@
-/.docker
-/.nv
-/.cache
-/.ssh
+__pycache__
 /build
-/build-cffi
+/build_cffi
 /hammy_machine.compose.tmp
 /venv
-.env
-Release
-Debug
-dbt/logs
-hammy-docs/.obsidian/workspace.json
-__pycache__/
+/hammy_docs/.obsidian/workspace.json

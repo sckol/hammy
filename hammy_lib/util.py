@@ -34,12 +34,12 @@ class CCode:
 
     @staticmethod
     def read_common_header() -> str:
-        lib_path = Path(__file__).parent / "c-libs" / "common" / "common.h"
+        lib_path = Path(__file__).parent / "c_libs" / "common" / "common.h"
         with open(lib_path, "r") as f:
             return f.read()
 
     def generate_include_for_platform(self, platform: SimulatorPlatforms) -> str:
-        lib_path = Path(__file__).parent / "c-libs"
+        lib_path = Path(__file__).parent / "c_libs"
         libs = []
         if platform == SimulatorPlatforms.CFFI:
             libs += ["pcg_basic", "cuda_cpu"]    
