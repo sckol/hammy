@@ -1,6 +1,6 @@
+import json
 import time
 import xarray as xr
-import random
 from cffi import FFI
 from pathlib import Path
 from multiprocessing import Pool
@@ -8,47 +8,73 @@ import psutil
 from functools import partial
 from typing import Dict, Callable
 import ctypes
-from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults
+import inspect
+from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment
+from .machine_configuration import MachineConfiguration
 
 class Simulator:
-  def __init__(self, simulator_constants: SimulatorConstants, 
+  def __init__(self, experiment: Experiment, 
+      simulator_constants: SimulatorConstants, 
       python_simulator_function: Callable[[int, xr.DataArray], None], 
-      c_code: CCode, threads: int = psutil.cpu_count(logical=False), 
-      seed : int = random.randint(0, 2**32 - 1)):
+      c_code: CCode,
+      use_cuda: bool,
+      seed : int,
+      threads: int | None = None): 
+    self.experiment = experiment 
+    self.simulator_constants = simulator_constants
+    self.python_simulator_function = python_simulator_function
+    self.c_code = c_code    
+    self.use_cuda = use_cuda
+    self.seed = seed
+    if threads is None:
+      threads = psutil.cpu_count(logical=False) + int(use_cuda)
+    self.pool = Pool(threads)
     try:
       ctypes.CDLL("nvcuda.dll" if os.name == "nt" else "libcuda.so")
-      self.use_cuda = True
+      if not use_cuda:
+         raise ValueError("CUDA is available but not enabled in arguments")
     except:
-      self.use_cuda = False
-    self.threads = threads
-    self.simulator_constants = simulator_constants
-    self.python_simulator = python_simulator_function
-    self.c_code = c_code    
-    self.pool = Pool(threads)
-    self.seed = seed
-  
+      if use_cuda:
+          raise ValueError("CUDA is not available but is enabled in arguments")
+    includes = self.c_code.generate_include()
+    if isinstance(self.c_code.code, Path):
+      with open(self.c_code.code, "r") as f:
+        code_text = f.read()
+      with open(self.c_code.code.with_suffix(".h"), "w") as f:
+        f.write(includes)
+    else:
+      code_text = self.c_code
+    self.ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
+    self.cuda_source = "xxx" if use_cuda else None
+    self.machine_configuration = MachineConfiguration.detect(experiment, threads)
+    if not Path('.calibration_results_cache').exists():
+       self.calibration_results_cache = {}
+    else:
+      with open(path, 'r') as f:
+        self.calibration_results_cache = json.load(f)    
+    self.calibration_results_cache_key = CalibrationResultsCacheKey(
+      experiment=experiment,
+      threads=threads,
+      use_cuda=use_cuda,
+      machine_configuration=self.machine_configuration,
+      numpy_hash=hash(inspect.getsource(self.python_simulator_function)),
+      cffi_hash=hash(self.ffi_source),
+      cuda_hash=hash(self.cuda_source) if use_cuda else None
+    )
+
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
     state = self.__dict__.copy()
     del state['pool'] 
     return state
-    
-  def compile(self) -> None:      
-    includes = self.c_code.generate_include()
-    if isinstance(c_code.code, Path):
-      with open(c_code.code, "r") as f:
-        code_text = f.read()
-      with open(c_code.code.with_suffix(".h"), "w") as f:
-        f.write(includes)
-    else:
-      code_text = c_code
+
+  def compile(self) -> None:          
     ffi = FFI()     
-    ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
     ffi_libs = ["pcg_basic"]
     ffi_sources = [str(Path(__file__).parent / "c_libs" / lib / f"{lib}.c") 
       for lib in ffi_libs]
-    ffi.set_source("hammy_cpu_kernel", ffi_source, sources=ffi_sources)
-    ffi.cdef(c_code.function_header)
+    ffi.set_source("hammy_cpu_kernel", self.ffi_source, sources=ffi_sources)
+    ffi.cdef(self.c_code.function_header)
     output_dir = Path().parent / "build_cffi"
     ffi.compile(verbose=True, tmpdir=str(output_dir), target=str("hammy_cpu_kernel_lib.*"))
 
@@ -62,13 +88,14 @@ class Simulator:
     return out
 
   def run_single_simulation(self, platform: SimulatorPlatforms, loops: int, calibration_mode=False) -> xr.DataArray | float:
+    print(f"Running simulation with seed {self.seed}...")
     out = self.simulator_constants.create_empty_results()
     start_time = time.time()    
     match platform:
         case SimulatorPlatforms.PYTHON:
-            self.python_simulator(loops, out, seed)            
+            self.python_simulator_function(loops, out, self.seed)            
         case SimulatorPlatforms.CFFI:          
-            self.cffi_simulator(loops, out, seed)                     
+            self.cffi_simulator(loops, out, self.seed)                     
         case SimulatorPlatforms.CUDA:
             raise ValueError(f"CUDA platform not implemented yet")
         case _:
@@ -120,15 +147,19 @@ class Simulator:
             return final_loops            
         loops *= 2
 
-  def run_sequential_calibration(self) -> CalibrationResults:
+  def run_sequential_calibration(self, force=False) -> CalibrationResults:
+    if not force and self.machine_configuration in self.calibration_results_cache:
+      print(f"Using cached calibration results for {self.calibration_results_cache_key.to_id()}")
+      return self.calibration_results_cache[self.calibration_results_cache_key.to_id()]
     results = {}
     platforms = [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] 
     platforms += [SimulatorPlatforms.CUDA] if self.use_cuda else []
     for platform in platforms:    
-        results[platform] = self.run_single_calibration(platform)
+        results[platform] = self.run_single_calibration(platform)    
     return results
   
-  def run_parallel_calibration(self, sequential_results: CalibrationResults) -> CalibrationResults:
+  def run_parallel_calibration(self) -> CalibrationResults:
+    sequential_results = self.run_sequential_calibration()
     parallel_results = self.run_parallel_simulations(sequential_results, calibration_mode=True)
     for platform in parallel_results:
       if abs(parallel_results[platform] - sequential_results[platform]) > sequential_results[platform] * 0.25:

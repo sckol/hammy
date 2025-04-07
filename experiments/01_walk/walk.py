@@ -1,13 +1,13 @@
 import xarray as xr
 import numpy as np
-from hammy import Simulator, SimulatorPlatforms, CCode, Experiment
+from hammy_lib.simulator import Simulator
+from hammy_lib.util import SimulatorConstants, CCode, Experiment, SimulatorPlatforms, generate_random_seed
+from hammy_lib.machine_configuration import MachineConfiguration
+from pathlib import Path
 
 EXPERIMENT = Experiment(1, "walk")
 
 class N(SimulatorConstants):
-  TAG = "walk";
-  EXPERIMENT_NUMBER = 1;
-  IMPLEMENTATION_NUMBER = 1;
   T = 1000 # Number of steps in a single random walk
   CHECKPOINTS = [100, 200, 300, 400, 500, 600, 700, 800, 900, T]
   CHECKPOINTS_LEN = len(CHECKPOINTS)
@@ -58,7 +58,12 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
 #define BINS_MAX { N.BINS_TUPLE[1] - 1 }
 #define BINS_LEN { N.BINS_LEN }
 """
-  C_CODE = CCode(EXPERIMENT.get_path() / "walk.c", C_DEFINITIONS)
-  simulator = Simulator(N, simulate, C_CODE, threads=1, seed=0)
+  
+  mc = MachineConfiguration.detect()
+  print(mc)
+  print(mc.to_id())
+  #C_CODE = CCode(Path(__file__) / "walk.c", C_DEFINITIONS)
+  #simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())
+  #simulator.compile()
   #print(simulator.run_calibration(SimulatorPlatforms.CFFI))
-  simulator.run_parallel_simulations(1000, 1)
+  #simulator.run_parallel_calibration(simulator.run_sequential_calibration())
