@@ -22,14 +22,7 @@ class Experiment:
     version: int    
 
     def to_id(self) -> str:
-        return f"exp_name:{self.version:02d}/exp_ver:{self.name}"
-
-    @staticmethod
-    def from_id(id: str) -> "Experiment":
-        parts = id.split("/")
-        version = int(parts[0].split(":")[1])
-        name = parts[1].split(":")[1]
-        return Experiment(name=name, version=version)    
+        return f"exp_name:{self.name}/exp_ver:{self.version}"  
 
 CalibrationResults = Dict[SimulatorPlatforms, int]
 

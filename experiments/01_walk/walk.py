@@ -59,11 +59,9 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
 #define BINS_LEN { N.BINS_LEN }
 """
   
-  mc = MachineConfiguration.detect()
-  print(mc)
-  print(mc.to_id())
-  #C_CODE = CCode(Path(__file__) / "walk.c", C_DEFINITIONS)
-  #simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())
+  C_CODE = CCode(Path(__file__).parent / "walk.c", C_DEFINITIONS)
+  simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())
   #simulator.compile()
   #print(simulator.run_calibration(SimulatorPlatforms.CFFI))
-  #simulator.run_parallel_calibration(simulator.run_sequential_calibration())
+  calibration_results = simulator.run_parallel_calibration(force_run_sequential=False)
+  simulator.save_calibration_results_cache(calibration_results)

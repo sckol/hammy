@@ -9,10 +9,13 @@ from functools import partial
 from typing import Dict, Callable
 import ctypes
 import inspect
-from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment
+import hashlib
+from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey
 from .machine_configuration import MachineConfiguration
 
 class Simulator:
+  CALIBRATION_RESULTS_CACHE_FILE = '.calibration_results_cache'
+
   def __init__(self, experiment: Experiment, 
       simulator_constants: SimulatorConstants, 
       python_simulator_function: Callable[[int, xr.DataArray], None], 
@@ -28,6 +31,7 @@ class Simulator:
     self.seed = seed
     if threads is None:
       threads = psutil.cpu_count(logical=False) + int(use_cuda)
+    self.threads = threads
     self.pool = Pool(threads)
     try:
       ctypes.CDLL("nvcuda.dll" if os.name == "nt" else "libcuda.so")
@@ -46,21 +50,45 @@ class Simulator:
       code_text = self.c_code
     self.ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
     self.cuda_source = "xxx" if use_cuda else None
-    self.machine_configuration = MachineConfiguration.detect(experiment, threads)
-    if not Path('.calibration_results_cache').exists():
-       self.calibration_results_cache = {}
-    else:
-      with open(path, 'r') as f:
-        self.calibration_results_cache = json.load(f)    
+    self.machine_configuration = MachineConfiguration.detect()
+    self.load_calibration_results_cache()
     self.calibration_results_cache_key = CalibrationResultsCacheKey(
       experiment=experiment,
       threads=threads,
       use_cuda=use_cuda,
       machine_configuration=self.machine_configuration,
-      numpy_hash=hash(inspect.getsource(self.python_simulator_function)),
-      cffi_hash=hash(self.ffi_source),
-      cuda_hash=hash(self.cuda_source) if use_cuda else None
+      numpy_hash=hashlib.sha256(inspect.getsource(self.python_simulator_function).encode()).hexdigest()[0:5],
+      cffi_hash=hashlib.sha256(self.ffi_source.encode()).hexdigest()[0:5],
+      cuda_hash=hashlib.sha256(self.cuda_source.encode()).hexdigest()[0:5] if use_cuda else None
     )
+
+  def load_calibration_results_cache(self) -> None:    
+    if not Path(self.CALIBRATION_RESULTS_CACHE_FILE).exists():
+      self.calibration_results_cache = {}
+      return
+    with open(self.CALIBRATION_RESULTS_CACHE_FILE, 'r') as f:
+      raw_data = json.load(f)
+      self.calibration_results_cache = {
+        key: {SimulatorPlatforms[k]: v for k, v in value.items()}
+                for key, value in raw_data.items()
+      }
+
+  def dump_calibration_results_cache(self) -> None:    
+    serializable_cache = {
+      key: {k.name: v for k, v in value.items()}
+        for key, value in self.calibration_results_cache.items()
+    }
+    with open(self.CALIBRATION_RESULTS_CACHE_FILE, 'w') as f:
+      json.dump(serializable_cache, f, indent=2)
+
+  def save_calibration_results_cache(self, results: CalibrationResults) -> None:    
+    self.calibration_results_cache[self.calibration_results_cache_key.to_id()] = results
+    self.dump_calibration_results_cache()
+
+  def check_calibration_results_cache(self) -> CalibrationResults | None:
+    if self.calibration_results_cache_key.to_id() in self.calibration_results_cache:
+      return self.calibration_results_cache[self.calibration_results_cache_key.to_id()]
+    return None
 
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
@@ -90,7 +118,7 @@ class Simulator:
   def run_single_simulation(self, platform: SimulatorPlatforms, loops: int, calibration_mode=False) -> xr.DataArray | float:
     print(f"Running simulation with seed {self.seed}...")
     out = self.simulator_constants.create_empty_results()
-    start_time = time.time()    
+    start_time = time.time()        
     match platform:
         case SimulatorPlatforms.PYTHON:
             self.python_simulator_function(loops, out, self.seed)            
@@ -114,56 +142,65 @@ class Simulator:
             list(range(self.threads)))
     self.seed = self.seed + self.threads  
     if calibration_mode:
-          results = {SimulatorPlatforms.PYTHON: res[0]}
-          cffi_times = res[1:-1] if self.use_cuda else res[1:]
-          min_cffi = min(cffi_times)
-          max_cffi = max(cffi_times)
-          if max_cffi > min_cffi * 1.25:
-            raise ValueError("CFFI times vary too much between threads")
-          results[SimulatorPlatforms.CFFI] = sum(cffi_times) / len(cffi_times)
-          if self.use_cuda:
-            results[SimulatorPlatforms.CUDA] = res[-1]
-          return results
+      def time_to_loops(time: float, platform: SimulatorPlatforms) -> int:
+        return int(loops_by_platform[platform] / time * 60)
+      results = {SimulatorPlatforms.PYTHON: time_to_loops(res[0], SimulatorPlatforms.PYTHON)}
+      cffi_times = res[1:-1] if self.use_cuda else res[1:]
+      min_cffi = min(cffi_times)
+      max_cffi = max(cffi_times)
+      if max_cffi > min_cffi * 1.25:
+        raise ValueError("CFFI times vary too much between threads")
+      results[SimulatorPlatforms.CFFI] = time_to_loops(sum(cffi_times) / len(cffi_times), SimulatorPlatforms.CFFI)
+      if self.use_cuda:
+        results[SimulatorPlatforms.CUDA] = time_to_loops(res[-1], SimulatorPlatforms.CUDA)
+      return results
     combined = xr.concat(res, dim='thread')
     return combined
 
   def run_single_calibration(self, platform: SimulatorPlatforms) -> float:
     loops = 1000
     while True:
-        print(f"Running calibration with {loops} loops...")
-        elapsed_time = self.run_single_simulation(platform, loops, calibration_mode=True)
-        print(f"Simulation took {elapsed_time:.2f} seconds")            
-        if elapsed_time > 15:
-            # Calculate loops needed for 1 minute
-            one_min_loops = int(loops * 60 / elapsed_time)
-            print(f"Estimated {one_min_loops} loops needed for 1 minute")            
-            # Run with calculated loops
-            print(f"Running verification with {one_min_loops} loops...")
-            elapsed_time = self.run_single_simulation(platform, one_min_loops, calibration_mode=True)
-            print(f"Verification took {elapsed_time:.2f} seconds")                
-            # Final adjustment
-            final_loops = int(one_min_loops * 60 / elapsed_time)
-            print(f"Final calibration: {final_loops} loops per minute")
-            return final_loops            
-        loops *= 2
+      print(f"Running calibration with {loops} loops...")
+      elapsed_time = self.run_single_simulation(platform, loops, calibration_mode=True)
+      print(f"Simulation took {elapsed_time:.2f} seconds")            
+      if elapsed_time > 15:
+        # Calculate loops needed for 1 minute
+        one_min_loops = int(loops * 60 / elapsed_time)
+        print(f"Estimated {one_min_loops} loops needed for 1 minute")            
+        # Run with calculated loops
+        print(f"Running verification with {one_min_loops} loops...")
+        elapsed_time = self.run_single_simulation(platform, one_min_loops, calibration_mode=True)
+        print(f"Verification took {elapsed_time:.2f} seconds")                
+        # Final adjustment
+        final_loops = int(one_min_loops * 60 / elapsed_time)
+        print(f"Final calibration: {final_loops} loops per minute")
+        return final_loops            
+      loops *= 2
 
   def run_sequential_calibration(self, force=False) -> CalibrationResults:
-    if not force and self.machine_configuration in self.calibration_results_cache:
-      print(f"Using cached calibration results for {self.calibration_results_cache_key.to_id()}")
-      return self.calibration_results_cache[self.calibration_results_cache_key.to_id()]
-    results = {}
+    if not force:
+      cached_results = self.check_calibration_results_cache()
+      if cached_results is not None:
+        print(f"Using cached calibration results for {self.calibration_results_cache_key.to_id()}")
+        return cached_results      
+    results : CalibrationResults = {}
     platforms = [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] 
     platforms += [SimulatorPlatforms.CUDA] if self.use_cuda else []
     for platform in platforms:    
         results[platform] = self.run_single_calibration(platform)    
     return results
   
-  def run_parallel_calibration(self) -> CalibrationResults:
-    sequential_results = self.run_sequential_calibration()
+  def run_parallel_calibration(self, force_run_sequential=False, tolerance=25) -> CalibrationResults:
+    sequential_results = self.run_sequential_calibration(force=force_run_sequential)
     parallel_results = self.run_parallel_simulations(sequential_results, calibration_mode=True)
+    discrepancies = []
     for platform in parallel_results:
-      if abs(parallel_results[platform] - sequential_results[platform]) > sequential_results[platform] * 0.25:
-        raise ValueError(f"Parallel calibration for {platform} differs too much from sequential calibration")
+      diff_percent = abs(parallel_results[platform] - sequential_results[platform]) / sequential_results[platform] * 100
+      if diff_percent > tolerance:
+        discrepancies.append(f"{platform.value}: {diff_percent:.1f}% difference ({parallel_results[platform] - sequential_results[platform]:+d} loops, parallel: {parallel_results[platform]}, sequential: {sequential_results[platform]})")
+        print(f"WARNING: {platform.value} calibration differs by {diff_percent:.1f}% ({parallel_results[platform] - sequential_results[platform]:+d} loops, parallel value: {parallel_results[platform]})")
+      else:
+        print(f"OK: {platform.value} calibration matches within {diff_percent:.1f}% ({parallel_results[platform] - sequential_results[platform]:+d} loops, parallel value: {parallel_results[platform]})")    
+    if discrepancies:
+      raise ValueError("Parallel calibration failed:\n" + "\n".join(discrepancies))  
     return parallel_results
-    
-
