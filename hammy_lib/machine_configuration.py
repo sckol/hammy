@@ -112,7 +112,7 @@ class MachineConfiguration:
         except Exception as e:                     
             compiler_path = str(e).split("command ")[1].split("failed")[0].strip().strip("'")               
             compiler_version = subprocess.run(
-                [compiler_path] + [] if os_name == "Windows" else ["--version"], stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True, check=True)                
+                [compiler_path] + ([] if os_name == "Windows" else ["--version"]), stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True, check=True)                
             print(compiler_version.stdout)                             
             return MachineConfiguration.clear_string(compiler_version.stdout.split("\n")[0].strip())   
             
