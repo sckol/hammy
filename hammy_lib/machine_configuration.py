@@ -7,6 +7,7 @@ from cffi import FFI
 import numpy as np
 from pathlib import Path
 import re
+from .hashes import to_int_hash
 
 @dataclass(frozen=True)
 class MachineConfiguration:
@@ -31,7 +32,7 @@ class MachineConfiguration:
         cpu_model = MachineConfiguration.clear_string(platform.processor())
         physical_cores = psutil.cpu_count(logical=False)
         logical_cores = psutil.cpu_count(logical=True)
-        total_ram_gb = psutil.virtual_memory().total / (1024**3)
+        total_ram_gb = round(float(psutil.virtual_memory().total / (1024**3)), 1)
 
         # Detect OS information
         os_name = platform.system()
@@ -53,7 +54,7 @@ class MachineConfiguration:
             ).strip().split(',')
             if gpu_info and len(gpu_info) >= 2:
                 gpu_model = gpu_info[0].strip()
-                gpu_memory_gb = float(gpu_info[1].strip().split()[0]) / 1024  # Convert MiB to GB
+                gpu_memory_gb = round(float(gpu_info[1].strip().split()[0]) / 1024, 1)  # Convert MiB to GB
                 # CUDA cores requires additional querying based on GPU model
                 # This is a simplified example, actual implementation would need GPU architecture mapping
         except Exception:
@@ -120,39 +121,19 @@ class MachineConfiguration:
     def clear_string(s: str) -> str:        
         return re.sub(r'[^a-zA-Z0-9.]', '_', s.strip())
 
-    def to_id(self) -> str:
-        return "/".join([
-            f"cpu_model:{self.cpu_model}",
-            f"physical_cores:{self.physical_cores}",
-            f"logical_cores:{self.logical_cores}",
-            f"total_ram_gb:{self.total_ram_gb:.1f}",
-            f"os_name:{self.os_name}",
-            f"os_version:{self.os_version}",
-            f"gpu_model:{self.gpu_model or 'None'}",
-            f"gpu_memory_gb:{(self.gpu_memory_gb or 0):.1f}",
-            f"cuda_cores:{self.cuda_cores or 0}",
-            f"python_version:{self.python_version}",
-            f"numpy_version:{self.numpy_version}",
-            f"ccompiler:{self.ccompiler}",
-            f"cuda_version:{self.cuda_version or 'None'}"
-        ])
-
-    def __str__(self) -> str:
-        """Pretty print the configuration"""
-        gpu_info = (f"GPU: {self.gpu_model}\n"
-                   f"  CUDA: {self.cuda_version}\n"
-                   f"  Memory: {self.gpu_memory_gb:.1f} GB\n"
-                   f"  CUDA Cores: {self.cuda_cores}") \
-                   if self.gpu_model else "GPU: Not available"
-        
-        return (f"System Configuration:\n"
-                f"  OS: {self.os_name} {self.os_version}\n"
-                f"  CPU: {self.cpu_model}\n"
-                f"    Physical cores: {self.physical_cores}\n"
-                f"    Logical cores: {self.logical_cores}\n"
-                f"    RAM: {self.total_ram_gb:.1f} GB\n"
-                f"  {gpu_info}\n"
-                f"  Python: {self.python_version}\n"
-                f"  NumPy: {self.numpy_version}\n"
-                f"  Compiler: {self.ccompiler}\n")
-    
+    def __hash__(self) -> int:
+        return to_int_hash("/".join([
+            self.cpu_model,
+            str(self.physical_cores),
+            str(self.logical_cores),
+            f"{self.total_ram_gb:.1f}",
+            str(self.gpu_model),
+            str(self.cuda_cores),
+            f"{(self.gpu_memory_gb or 0):.1f}",
+            self.os_name,
+            self.os_version,
+            self.python_version,
+            self.numpy_version,
+            self.ccompiler,
+            str(self.cuda_version)
+        ]))

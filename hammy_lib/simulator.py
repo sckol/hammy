@@ -6,15 +6,16 @@ from pathlib import Path
 from multiprocessing import Pool
 import psutil
 from functools import partial
-from typing import Dict, Callable
+from typing import Callable
 import ctypes
 import inspect
-import hashlib
 from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey
+from .hashes import to_int_hash, hash_to_digest
 from .machine_configuration import MachineConfiguration
+import pickle
 
-class Simulator:
-  CALIBRATION_RESULTS_CACHE_FILE = '.calibration_results_cache'
+class Simulator:  
+  RESULTS_DIR = Path('results')
 
   def __init__(self, experiment: Experiment, 
       simulator_constants: SimulatorConstants, 
@@ -50,45 +51,44 @@ class Simulator:
       code_text = self.c_code
     self.ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
     self.cuda_source = "xxx" if use_cuda else None
-    self.machine_configuration = MachineConfiguration.detect()
-    self.load_calibration_results_cache()
+    self.machine_configuration = MachineConfiguration.detect()    
     self.calibration_results_cache_key = CalibrationResultsCacheKey(
       experiment=experiment,
       threads=threads,
       use_cuda=use_cuda,
       machine_configuration=self.machine_configuration,
-      numpy_hash=hashlib.sha256(inspect.getsource(self.python_simulator_function).encode()).hexdigest()[0:5],
-      cffi_hash=hashlib.sha256(self.ffi_source.encode()).hexdigest()[0:5],
-      cuda_hash=hashlib.sha256(self.cuda_source.encode()).hexdigest()[0:5] if use_cuda else None
-    )
+      numpy_hash=hash_to_digest(to_int_hash(inspect.getsource(self.python_simulator_function))),
+      cffi_hash=hash_to_digest(to_int_hash(self.ffi_source)),
+      cuda_hash=hash_to_digest(to_int_hash(self.cuda_source)) if use_cuda else None
+    )        
+    self.calibration_results_cache_file = self.RESULTS_DIR / f"{self.experiment.to_folder_name()}_{self.calibration_results_cache_key.digest()}_calibration.json"            
+    self.simulation_results_cache_file = self.RESULTS_DIR / str(self.experiment.to_folder_name()) / f"{self.calibration_results_cache_key.digest()}_simulation.pkl"    
+    
+  def dump_calibration_results(self, calibration_results: CalibrationResults) -> None:    
+    self.calibration_results_cache_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(self.calibration_results_cache_file, 'w') as f:
+      res = {k.name: v for k, v in calibration_results.items()}
+      res['__key'] = self.calibration_results_cache_key.digest()
+      res['__key_data'] = str(self.calibration_results_cache_key)
+      json.dump(res, f, indent=2)      
 
-  def load_calibration_results_cache(self) -> None:    
-    if not Path(self.CALIBRATION_RESULTS_CACHE_FILE).exists():
-      self.calibration_results_cache = {}
-      return
-    with open(self.CALIBRATION_RESULTS_CACHE_FILE, 'r') as f:
+  def load_calibration_results(self) -> CalibrationResults:
+    if not Path(self.calibration_results_cache_file).exists():
+      return None
+    with open(self.calibration_results_cache_file, 'r') as f:
       raw_data = json.load(f)
-      self.calibration_results_cache = {
-        key: {SimulatorPlatforms[k]: v for k, v in value.items()}
-                for key, value in raw_data.items()
-      }
+      return {SimulatorPlatforms[k]: v for k, v in raw_data.items() if not k.startswith('__')}
 
-  def dump_calibration_results_cache(self) -> None:    
-    serializable_cache = {
-      key: {k.name: v for k, v in value.items()}
-        for key, value in self.calibration_results_cache.items()
-    }
-    with open(self.CALIBRATION_RESULTS_CACHE_FILE, 'w') as f:
-      json.dump(serializable_cache, f, indent=2)
+  def dump_simulation_results(self, simulation_results: xr.DataArray) -> None:
+    self.simulation_results_cache_file.parent.mkdir(parents=True, exist_ok=True)   
+    with open(self.simulation_results_cache_file, 'wb') as f:
+      pickle.dump(simulation_results, f, protocol=-1)
 
-  def save_calibration_results_cache(self, results: CalibrationResults) -> None:    
-    self.calibration_results_cache[self.calibration_results_cache_key.to_id()] = results
-    self.dump_calibration_results_cache()
-
-  def check_calibration_results_cache(self) -> CalibrationResults | None:
-    if self.calibration_results_cache_key.to_id() in self.calibration_results_cache:
-      return self.calibration_results_cache[self.calibration_results_cache_key.to_id()]
-    return None
+  def load_simulation_results(self) -> xr.DataArray:
+    if not Path(self.simulation_results_cache_file).exists():
+      return None
+    with open(self.simulation_results_cache_file, 'rb') as f:
+      return pickle.load(f)
 
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
@@ -153,9 +153,15 @@ class Simulator:
       results[SimulatorPlatforms.CFFI] = time_to_loops(sum(cffi_times) / len(cffi_times), SimulatorPlatforms.CFFI)
       if self.use_cuda:
         results[SimulatorPlatforms.CUDA] = time_to_loops(res[-1], SimulatorPlatforms.CUDA)
-      return results
-    combined = xr.concat(res, dim='thread')
-    return combined
+      return results    
+    python_result = res[0]
+    cffi_results = res[1:-1] if self.use_cuda else res[1:]
+    cuda_result = res[-1] if self.use_cuda else None
+    cffi_combined = sum(cffi_results[1:], cffi_results[0])
+    platform_results = [python_result, cffi_combined]
+    if self.use_cuda:
+      platform_results.append(cuda_result)
+    return xr.concat(platform_results, dim=pd.Index([p.name for p in [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + ([SimulatorPlatforms.CUDA] if self.use_cuda else [])], name='platform'))    
 
   def run_single_calibration(self, platform: SimulatorPlatforms) -> float:
     loops = 1000
@@ -179,10 +185,10 @@ class Simulator:
 
   def run_sequential_calibration(self, force=False) -> CalibrationResults:
     if not force:
-      cached_results = self.check_calibration_results_cache()
-      if cached_results is not None:
-        print(f"Using cached calibration results for {self.calibration_results_cache_key.to_id()}")
-        return cached_results      
+      cached_calibration_results = self.load_calibration_results()
+      if cached_calibration_results:
+        print(f"Using cached calibration results from {self.calibration_results_cache_file}")
+        return cached_calibration_results
     results : CalibrationResults = {}
     platforms = [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] 
     platforms += [SimulatorPlatforms.CUDA] if self.use_cuda else []
@@ -204,3 +210,29 @@ class Simulator:
     if discrepancies:
       raise ValueError("Parallel calibration failed:\n" + "\n".join(discrepancies))  
     return parallel_results
+
+  def run_level_simulation(self, calibration_results: CalibrationResults, max_level: int, ignore_cache=False) -> xr.DataArray:
+    # TODO: Take the calibration_results from the simulation results 
+    if max_level < 0:
+      raise ValueError("max_level must be >= 0")
+    if not ignore_cache:
+      cached_simulation_results = self.load_simulation_results()
+    else: 
+      cached_simulation_results = None
+    if cached_simulation_results:
+      current_level = self.simulation_results.level.size
+    else:
+      current_level = -1
+    if current_level >= max_level:
+      print(f"Simulation already completed for level {max_level}")
+      return cached_simulation_results
+    current_results = []
+    for level in range(current_level, max_level):      
+      minutes = 2 ** (level - 1) if level > 0 else 1
+      print(f"Running level {level} simulation for {minutes} minutes...")
+      loops_by_platform = {platform: int(calibration_results[platform] * minutes) for platform in calibration_results}
+      current_results.append(self.run_parallel_simulations(loops_by_platform))
+    if self.simulation_results:
+      self.simulation_results = xr.concat(current_results, dim=pd.Index(range(current_level, max_level), name='level'))
+    else:
+      self.simulation_results = xr.concat([self.simulation_results] + current_results, dim=pd.Index(range(max_level), name='level'))

@@ -5,7 +5,7 @@ from hammy_lib.util import SimulatorConstants, CCode, Experiment, SimulatorPlatf
 from hammy_lib.machine_configuration import MachineConfiguration
 from pathlib import Path
 
-EXPERIMENT = Experiment(1, "walk")
+EXPERIMENT = Experiment(1, "walk", 1)
 
 class N(SimulatorConstants):
   T = 1000 # Number of steps in a single random walk
@@ -64,4 +64,4 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
   #simulator.compile()
   #print(simulator.run_calibration(SimulatorPlatforms.CFFI))
   calibration_results = simulator.run_parallel_calibration(force_run_sequential=False)
-  simulator.save_calibration_results_cache(calibration_results)
+  simulator.dump_calibration_results(calibration_results)

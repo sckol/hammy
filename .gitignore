@@ -5,3 +5,4 @@ __pycache__
 /venv
 /hammy_docs/.obsidian/workspace.json
 .calibration_results_cache
+/results

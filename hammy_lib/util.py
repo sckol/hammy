@@ -7,6 +7,7 @@ from typing import Dict
 from time import time
 from .machine_configuration import MachineConfiguration
 from typing import Optional
+from .hashes import to_int_hash, hash_to_digest
 
 def generate_random_seed() -> int:
     return int(time() * 1000)
@@ -17,12 +18,16 @@ class SimulatorPlatforms(Enum):
     CUDA = "cuda"
 
 @dataclass(frozen=True)
-class Experiment:    
+class Experiment:
+    number: int    
     name: str
     version: int    
 
-    def to_id(self) -> str:
-        return f"exp_name:{self.name}/exp_ver:{self.version}"  
+    def to_folder_name(self) -> str:
+        return f"{self.number}_{self.version}"
+    
+    def __hash__(self) -> int:
+        return to_int_hash("/".join([self.name, str(self.version)]))
 
 CalibrationResults = Dict[SimulatorPlatforms, int]
 
@@ -35,10 +40,19 @@ class CalibrationResultsCacheKey:
     numpy_hash: int
     cffi_hash: int
     cuda_hash: Optional[int]
-    def to_id(self) -> str:
-        return f"{self.experiment.to_id()}/threads:{self.threads}/use_cuda:{self.use_cuda}/numpy_hash:{self.numpy_hash}/cffi_hash:{self.cffi_hash}/cuda_hash:{self.cuda_hash or None}"
-
-CalibrationResultsCache = Dict[CalibrationResultsCacheKey, CalibrationResults]
+    
+    def __hash__(self) -> int:
+        return to_int_hash("/".join([
+            str(hash(self.experiment)),
+            str(self.threads),
+            str(self.use_cuda),
+            str(hash(self.machine_configuration)),
+            str(self.numpy_hash),
+            str(self.cffi_hash),
+            str(self.cuda_hash)]))
+    
+    def digest(self) -> str:
+        return hash_to_digest(hash(self))
 
 @dataclass(frozen=True)
 class CCode:  
@@ -77,3 +91,4 @@ class SimulatorConstants(abc.ABC):
     @abc.abstractmethod
     def create_empty_results(self) -> xr.DataArray:
         pass
+
