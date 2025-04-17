@@ -9,10 +9,11 @@ from functools import partial
 from typing import Callable
 import ctypes
 import inspect
-from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey
+from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey, flatten_dict
 from .hashes import to_int_hash, hash_to_digest
 from .machine_configuration import MachineConfiguration
 import pickle
+import pandas as pd
 
 class Simulator:  
   RESULTS_DIR = Path('results')
@@ -62,15 +63,15 @@ class Simulator:
       cuda_hash=hash_to_digest(to_int_hash(self.cuda_source)) if use_cuda else None
     )        
     self.calibration_results_cache_file = self.RESULTS_DIR / f"{self.experiment.to_folder_name()}_{self.calibration_results_cache_key.digest()}_calibration.json"            
-    self.simulation_results_cache_file = self.RESULTS_DIR / str(self.experiment.to_folder_name()) / f"{self.calibration_results_cache_key.digest()}_simulation.pkl"    
+    self.simulation_results_cache_file = self.RESULTS_DIR / str(self.experiment.to_folder_name()) / f"{self.calibration_results_cache_key.digest()}_simulation.nc"    
     
   def dump_calibration_results(self, calibration_results: CalibrationResults) -> None:    
     self.calibration_results_cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(self.calibration_results_cache_file, 'w') as f:
       res = {k.name: v for k, v in calibration_results.items()}
       res['__key'] = self.calibration_results_cache_key.digest()
-      res['__key_data'] = str(self.calibration_results_cache_key)
-      json.dump(res, f, indent=2)      
+      res['__key_data'] = self.calibration_results_cache_key
+      json.dump(flatten_dict(res), f, indent=2)      
 
   def load_calibration_results(self) -> CalibrationResults:
     if not Path(self.calibration_results_cache_file).exists():
@@ -80,15 +81,16 @@ class Simulator:
       return {SimulatorPlatforms[k]: v for k, v in raw_data.items() if not k.startswith('__')}
 
   def dump_simulation_results(self, simulation_results: xr.DataArray) -> None:
-    self.simulation_results_cache_file.parent.mkdir(parents=True, exist_ok=True)   
-    with open(self.simulation_results_cache_file, 'wb') as f:
-      pickle.dump(simulation_results, f, protocol=-1)
+    self.simulation_results_cache_file.parent.mkdir(parents=True, exist_ok=True)      
+    # Save as netCDF with compression
+    simulation_results.to_netcdf(self.simulation_results_cache_file, encoding={
+        simulation_results.name or 'data': {'zlib': True, 'complevel': 5}
+    })
 
-  def load_simulation_results(self) -> xr.DataArray:
+  def load_simulation_results(self) -> xr.DataArray:    
     if not Path(self.simulation_results_cache_file).exists():
       return None
-    with open(self.simulation_results_cache_file, 'rb') as f:
-      return pickle.load(f)
+    return xr.open_dataarray(self.simulation_results_cache_file)
 
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
@@ -161,7 +163,7 @@ class Simulator:
     platform_results = [python_result, cffi_combined]
     if self.use_cuda:
       platform_results.append(cuda_result)
-    return xr.concat(platform_results, dim=pd.Index([p.name for p in [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + ([SimulatorPlatforms.CUDA] if self.use_cuda else [])], name='platform'))    
+    return xr.concat(platform_results, dim=pd.Index([p.name for p in [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + ([SimulatorPlatforms.CUDA] if self.use_cuda else [])], name='platform'))
 
   def run_single_calibration(self, platform: SimulatorPlatforms) -> float:
     loops = 1000
@@ -211,28 +213,43 @@ class Simulator:
       raise ValueError("Parallel calibration failed:\n" + "\n".join(discrepancies))  
     return parallel_results
 
-  def run_level_simulation(self, calibration_results: CalibrationResults, max_level: int, ignore_cache=False) -> xr.DataArray:
+  def run_level_simulation(self, max_level: int, calibration_results: CalibrationResults | None = None,
+                            force_rebuild: bool = False) -> xr.DataArray:
     # TODO: Take the calibration_results from the simulation results 
     if max_level < 0:
       raise ValueError("max_level must be >= 0")
-    if not ignore_cache:
-      cached_simulation_results = self.load_simulation_results()
-    else: 
+    if force_rebuild:
       cached_simulation_results = None
-    if cached_simulation_results:
-      current_level = self.simulation_results.level.size
     else:
-      current_level = -1
+      cached_simulation_results = self.load_simulation_results()
+    if cached_simulation_results is not None:
+      if calibration_results and calibration_results != cached_simulation_results.attrs['CalibrationResults']:
+        raise ValueError("Calibration results do not match cached simulation results.")
+      calibration_results = cached_simulation_results.attrs['CalibrationResults']
+      if not calibration_results:
+        raise ValueError("No calibration results found in cached simulation results.")
+    elif not calibration_results:
+      calibration_results = self.load_calibration_results()      
+    if not calibration_results:
+      raise ValueError("No calibration results found. Please run calibration first.")
+    if cached_simulation_results is not None:    
+      current_level = cached_simulation_results.level.size
+    else:             
+      current_level = -1        
     if current_level >= max_level:
       print(f"Simulation already completed for level {max_level}")
-      return cached_simulation_results
+      return cached_simulation_results    
     current_results = []
-    for level in range(current_level, max_level):      
+    for level in range(current_level + 1, max_level + 1):      
       minutes = 2 ** (level - 1) if level > 0 else 1
       print(f"Running level {level} simulation for {minutes} minutes...")
       loops_by_platform = {platform: int(calibration_results[platform] * minutes) for platform in calibration_results}
-      current_results.append(self.run_parallel_simulations(loops_by_platform))
-    if self.simulation_results:
-      self.simulation_results = xr.concat(current_results, dim=pd.Index(range(current_level, max_level), name='level'))
+      current_results.append(self.run_parallel_simulations(loops_by_platform))      
+    new_results = xr.concat(current_results, dim='level')            
+    new_results = new_results.assign_coords(level=range(current_level + 1, max_level + 1))  
+    if cached_simulation_results is not None:
+        res = xr.concat([cached_simulation_results, new_results], dim='level')
     else:
-      self.simulation_results = xr.concat([self.simulation_results] + current_results, dim=pd.Index(range(max_level), name='level'))
+        res = new_results
+    res.attrs['CalibrationResults'] = calibration_results
+    return res

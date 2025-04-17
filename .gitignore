@@ -4,5 +4,5 @@ __pycache__
 /hammy_machine.compose.tmp
 /venv
 /hammy_docs/.obsidian/workspace.json
-.calibration_results_cache
 /results
+.s3_credentials.json

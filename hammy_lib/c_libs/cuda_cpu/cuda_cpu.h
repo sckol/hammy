@@ -6,7 +6,7 @@
 #define _ [threadIdx.x]
 typedef pcg32_random_t curandStateXORWOW_t;
 void curand_init(unsigned long long seed, unsigned long long sequence, unsigned long long offset, curandStateXORWOW_t *state) {
-  pcg32_srandom_r(state, seed + sequence, offset);
+  pcg32_srandom_r(state, offset, (((unsigned long long)(seed & 0xFFFFFFFF) << 32) | (unsigned long long)(sequence & 0xFFFFFFFF)));
 }
 unsigned int curand(curandStateXORWOW_t *state) {
   return pcg32_random_r(state);

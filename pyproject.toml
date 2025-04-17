@@ -13,4 +13,5 @@ dependencies = [
     "xarray",
     "cffi",
     "psutil",
+    "boto3"
 ]

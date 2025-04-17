@@ -1,8 +1,9 @@
+import json
 import xarray as xr
 import numpy as np
 from hammy_lib.simulator import Simulator
-from hammy_lib.util import SimulatorConstants, CCode, Experiment, SimulatorPlatforms, generate_random_seed
-from hammy_lib.machine_configuration import MachineConfiguration
+from hammy_lib.util import SimulatorConstants, CCode, Experiment, generate_random_seed
+from hammy_lib.yandex_cloud_storage import YandexCloudStorage
 from pathlib import Path
 
 EXPERIMENT = Experiment(1, "walk", 1)
@@ -59,9 +60,16 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
 #define BINS_LEN { N.BINS_LEN }
 """
   
+  # Get access_key and secret_key from .s3_credentials.json file
+  with open(".s3_credentials.json") as f:
+    credentials = json.load(f)
+  storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])  
   C_CODE = CCode(Path(__file__).parent / "walk.c", C_DEFINITIONS)
-  simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())
-  #simulator.compile()
-  #print(simulator.run_calibration(SimulatorPlatforms.CFFI))
+  simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())  
+  storage.download_simulator_results(simulator)
+  # simulator.compile()  
   calibration_results = simulator.run_parallel_calibration(force_run_sequential=False)
   simulator.dump_calibration_results(calibration_results)
+  #simulation_results = siulator.run_level_simulation(2)
+  #simulator.dump_simulation_results(simulation_results)
+

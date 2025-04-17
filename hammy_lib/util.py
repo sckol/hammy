@@ -12,6 +12,17 @@ from .hashes import to_int_hash, hash_to_digest
 def generate_random_seed() -> int:
     return int(time() * 1000)
 
+def flatten_dict(d: Dict, prefix: str = "") -> Dict:    
+    items = []
+    for key, value in d.items():        
+        if hasattr(value, "__dict__"):
+            items.extend(flatten_dict(value.__dict__, "__").items())
+        if isinstance(value, dict):
+            items.extend(flatten_dict(value).items())
+        else:
+            items.append((f"{prefix}{key}", value))
+    return dict(items)
+
 class SimulatorPlatforms(Enum):
     PYTHON = "python"
     CFFI = "cffi" 
