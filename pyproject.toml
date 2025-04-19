@@ -13,5 +13,8 @@ dependencies = [
     "xarray",
     "cffi",
     "psutil",
-    "boto3"
+    "boto3",
+    "matplotlib",
+    "scipy",
+    "scs"
 ]

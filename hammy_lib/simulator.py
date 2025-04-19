@@ -9,7 +9,7 @@ from functools import partial
 from typing import Callable
 import ctypes
 import inspect
-from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey, flatten_dict
+from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey, flatten_dict, calibration_results_from_plain_dict, calibration_results_to_plain_dict
 from .hashes import to_int_hash, hash_to_digest
 from .machine_configuration import MachineConfiguration
 import pickle
@@ -68,7 +68,7 @@ class Simulator:
   def dump_calibration_results(self, calibration_results: CalibrationResults) -> None:    
     self.calibration_results_cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(self.calibration_results_cache_file, 'w') as f:
-      res = {k.name: v for k, v in calibration_results.items()}
+      res = calibration_results_to_plain_dict(calibration_results)
       res['__key'] = self.calibration_results_cache_key.digest()
       res['__key_data'] = self.calibration_results_cache_key
       json.dump(flatten_dict(res), f, indent=2)      
@@ -78,19 +78,19 @@ class Simulator:
       return None
     with open(self.calibration_results_cache_file, 'r') as f:
       raw_data = json.load(f)
-      return {SimulatorPlatforms[k]: v for k, v in raw_data.items() if not k.startswith('__')}
+      return calibration_results_from_plain_dict(raw_data)
 
   def dump_simulation_results(self, simulation_results: xr.DataArray) -> None:
     self.simulation_results_cache_file.parent.mkdir(parents=True, exist_ok=True)      
-    # Save as netCDF with compression
-    simulation_results.to_netcdf(self.simulation_results_cache_file, encoding={
-        simulation_results.name or 'data': {'zlib': True, 'complevel': 5}
-    })
+    # Save as netCDF with compression    
+    simulation_results.to_netcdf(self.simulation_results_cache_file
+                                 #, encoding={ 'SimulationResults': {'zlib': True, 'complevel': 5}} #TODO: FIXMEEEEEEEEEEE
+    )
 
   def load_simulation_results(self) -> xr.DataArray:    
     if not Path(self.simulation_results_cache_file).exists():
       return None
-    return xr.open_dataarray(self.simulation_results_cache_file)
+    return xr.load_dataarray(self.simulation_results_cache_file, )
 
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
@@ -223,9 +223,11 @@ class Simulator:
     else:
       cached_simulation_results = self.load_simulation_results()
     if cached_simulation_results is not None:
-      if calibration_results and calibration_results != cached_simulation_results.attrs['CalibrationResults']:
+      dataset_calibration_results = calibration_results_from_plain_dict(
+        json.loads(cached_simulation_results.attrs['CalibrationResults']))
+      if calibration_results and calibration_results != dataset_calibration_results:
         raise ValueError("Calibration results do not match cached simulation results.")
-      calibration_results = cached_simulation_results.attrs['CalibrationResults']
+      calibration_results = dataset_calibration_results
       if not calibration_results:
         raise ValueError("No calibration results found in cached simulation results.")
     elif not calibration_results:
@@ -233,7 +235,7 @@ class Simulator:
     if not calibration_results:
       raise ValueError("No calibration results found. Please run calibration first.")
     if cached_simulation_results is not None:    
-      current_level = cached_simulation_results.level.size
+      current_level = cached_simulation_results.level.size - 1
     else:             
       current_level = -1        
     if current_level >= max_level:
@@ -251,5 +253,6 @@ class Simulator:
         res = xr.concat([cached_simulation_results, new_results], dim='level')
     else:
         res = new_results
-    res.attrs['CalibrationResults'] = calibration_results
+    res.attrs['CalibrationResults'] = json.dumps(calibration_results_to_plain_dict(calibration_results))
+    res.name = 'SimulationResults'
     return res

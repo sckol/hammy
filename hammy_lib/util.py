@@ -17,7 +17,7 @@ def flatten_dict(d: Dict, prefix: str = "") -> Dict:
     for key, value in d.items():        
         if hasattr(value, "__dict__"):
             items.extend(flatten_dict(value.__dict__, "__").items())
-        if isinstance(value, dict):
+        elif isinstance(value, dict):
             items.extend(flatten_dict(value).items())
         else:
             items.append((f"{prefix}{key}", value))
@@ -41,6 +41,11 @@ class Experiment:
         return to_int_hash("/".join([self.name, str(self.version)]))
 
 CalibrationResults = Dict[SimulatorPlatforms, int]
+def calibration_results_to_plain_dict(calibration_results: CalibrationResults) -> dict[str, int]:
+    return {k.name: v for k, v in calibration_results.items()}
+
+def calibration_results_from_plain_dict(d: dict[str, int]) -> CalibrationResults:
+    return {SimulatorPlatforms[k]: v for k, v in d.items() if not k.startswith('__')}
 
 @dataclass(frozen=True)
 class CalibrationResultsCacheKey:
