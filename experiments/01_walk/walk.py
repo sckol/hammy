@@ -4,6 +4,7 @@ import numpy as np
 from hammy_lib.simulator import Simulator
 from hammy_lib.util import SimulatorConstants, CCode, Experiment, generate_random_seed
 from hammy_lib.yandex_cloud_storage import YandexCloudStorage
+from hammy_lib.calculator import Calculator, ArgMaxCalculator
 from pathlib import Path
 
 EXPERIMENT = Experiment(1, "walk", 1)
@@ -20,11 +21,11 @@ class N(SimulatorConstants):
   NUMPY_WIDTH = 100
   @staticmethod
   def create_empty_results() -> xr.DataArray:
-    dims=["targets", "checkpoints", "x"]
+    dims=["target", "checkpoint", "x"]
     coords = {
       "x": np.arange(*N.BINS_TUPLE),
-      "targets": N.TARGETS,
-      "checkpoints": N.CHECKPOINTS
+      "target": N.TARGETS,
+      "checkpoint": N.CHECKPOINTS
     }
     return xr.DataArray(  
       np.zeros(tuple(len(coords[i]) for i in dims)),
@@ -65,11 +66,24 @@ int CHECKPOINTS[] = {{{",".join([str(x) for x in N.CHECKPOINTS])}}};
     credentials = json.load(f)
   storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])  
   C_CODE = CCode(Path(__file__).parent / "walk.c", C_DEFINITIONS)
-  simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed())  
+  simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed(), digest="103fbf")
   #storage.download_simulator_results(simulator)
   # simulator.compile()  
   #calibration_results = simulator.run_parallel_calibration()
   #simulator.dump_calibration_results(calibration_results)
-  simulation_results = simulator.run_level_simulation(2)
-  simulator.dump_simulation_results(simulation_results)
+  #simulation_results = simulator.run_level_simulation(2)
+  #simulator.dump_simulation_results(simulation_results)
+  simulation_results = simulator.load_simulation_results()
+  extended_results = Calculator.extend_simulation_results(simulation_results)
+  argmax_calculator = ArgMaxCalculator(extended_results, ['target', 'checkpoint'])
+  print(argmax_calculator.calculate())
 
+#  simulator.dump_simulation_results(simulation_results)
+# Calculate extended dataset (all platforms and cumulative)
+# Write dask computation
+# Calculate mean position for each target and time
+# Calculate chi suqared test for each target and time
+# Run random quality test and fail it via bug in CFFI rng argument
+# Define csc calculation
+# Calculate csc position
+# Visualize

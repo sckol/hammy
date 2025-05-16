@@ -12,19 +12,17 @@ import inspect
 from .util import SimulatorPlatforms, CCode, SimulatorConstants, CalibrationResults, Experiment, CalibrationResultsCacheKey, flatten_dict, calibration_results_from_plain_dict, calibration_results_to_plain_dict
 from .hashes import to_int_hash, hash_to_digest
 from .machine_configuration import MachineConfiguration
-import pickle
 import pandas as pd
 
 class Simulator:  
-  RESULTS_DIR = Path('results')
-
   def __init__(self, experiment: Experiment, 
       simulator_constants: SimulatorConstants, 
       python_simulator_function: Callable[[int, xr.DataArray], None], 
       c_code: CCode,
       use_cuda: bool,
       seed : int,
-      threads: int | None = None): 
+      threads: int | None = None,
+      digest: str | None = None) -> None: 
     self.experiment = experiment 
     self.simulator_constants = simulator_constants
     self.python_simulator_function = python_simulator_function
@@ -52,20 +50,27 @@ class Simulator:
       code_text = self.c_code
     self.ffi_source = "\n".join(["#define FROM_PYTHON", includes, code_text])
     self.cuda_source = "xxx" if use_cuda else None
-    self.machine_configuration = MachineConfiguration.detect()    
-    self.calibration_results_cache_key = CalibrationResultsCacheKey(
-      experiment=experiment,
-      threads=threads,
-      use_cuda=use_cuda,
-      machine_configuration=self.machine_configuration,
-      numpy_hash=hash_to_digest(to_int_hash(inspect.getsource(self.python_simulator_function))),
-      cffi_hash=hash_to_digest(to_int_hash(self.ffi_source)),
-      cuda_hash=hash_to_digest(to_int_hash(self.cuda_source)) if use_cuda else None
-    )        
-    self.calibration_results_cache_file = self.RESULTS_DIR / f"{self.experiment.to_folder_name()}_{self.calibration_results_cache_key.digest()}_calibration.json"            
-    self.simulation_results_cache_file = self.RESULTS_DIR / str(self.experiment.to_folder_name()) / f"{self.calibration_results_cache_key.digest()}_simulation.nc"    
+    if digest:
+      self.digest = digest      
+      self.calibration_results_cache_key = None
+    else:
+      self.machine_configuration = MachineConfiguration.detect()    
+      self.calibration_results_cache_key = CalibrationResultsCacheKey(
+        experiment=experiment,
+        threads=threads,
+        use_cuda=use_cuda,
+        machine_configuration=MachineConfiguration.detect(),
+        numpy_hash=hash_to_digest(to_int_hash(inspect.getsource(self.python_simulator_function))),
+        cffi_hash=hash_to_digest(to_int_hash(self.ffi_source)),
+        cuda_hash=hash_to_digest(to_int_hash(self.cuda_source)) if use_cuda else None
+      )
+      self.digest = self.calibration_results_cache_key.digest()       
+    self.calibration_results_cache_file = self.RESULTS_DIR / f"{self.experiment.to_folder_name()}_{self.digest}_calibration.json"            
+    self.simulation_results_cache_file = self.RESULTS_DIR / str(self.experiment.to_folder_name()) / f"{self.digest}_simulation.nc"    
     
-  def dump_calibration_results(self, calibration_results: CalibrationResults) -> None:    
+  def dump_calibration_results(self, calibration_results: CalibrationResults) -> None: 
+    if self.calibration_results_cache_key is None:
+      raise ValueError("The simulator was created with a ready digest. Cannot dump calibration results.")   
     self.calibration_results_cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(self.calibration_results_cache_file, 'w') as f:
       res = calibration_results_to_plain_dict(calibration_results)
@@ -90,7 +95,7 @@ class Simulator:
   def load_simulation_results(self) -> xr.DataArray:    
     if not Path(self.simulation_results_cache_file).exists():
       return None
-    return xr.load_dataarray(self.simulation_results_cache_file, )
+    return xr.load_dataarray(self.simulation_results_cache_file)
 
   # To avoid cannot pickle error by the multiprocessing module
   def __getstate__(self):
