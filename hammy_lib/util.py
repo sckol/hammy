@@ -37,8 +37,8 @@ class Experiment:
     def to_folder_name(self) -> str:
         return f"{self.number}_{self.version}"
     
-    def __hash__(self) -> int:
-        return to_int_hash("/".join([self.name, str(self.version)]))
+    # def __hash__(self) -> int:
+    #     return to_int_hash("/".join([self.name, str(self.version)]))
 
 CalibrationResults = Dict[SimulatorPlatforms, int]
 def calibration_results_to_plain_dict(calibration_results: CalibrationResults) -> dict[str, int]:
