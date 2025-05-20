@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
+from .simulator_platforms import SimulatorPlatforms
 
 @dataclass(frozen=True)
 class CCode:  

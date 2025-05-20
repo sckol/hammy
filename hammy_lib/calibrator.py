@@ -1,5 +1,9 @@
 from .hammy_object import DictHammyObject
-from .util import Experiment, SimulatorConstants
+from .experiment import Experiment
+from .simulator_platforms import SimulatorPlatforms
+
+
+
 class BaseCalibrator(DictHammyObject):
   def __init__(self, experiment: Experiment, simulation_constants: SimulatorConstants):
     super().__init__(experiment)
