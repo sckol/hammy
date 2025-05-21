@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from pathlib import Path
 from multiprocessing import Pool
 import xarray as xr
@@ -7,22 +7,26 @@ from time import time
 from .simulator_platforms import SimulatorPlatforms
 from .ccode import CCode
 from .calibration_results import CalibrationResults
+from .hammy_object import DictHammyObject
 
-class Experiment(ABC):
-  number: int    
-  name: str
-  version: int  
+class Experiment(DictHammyObject):
+  experiment_number: int    
+  experiment_name: str
+  experiment_version: int  
   c_code: CCode
 
   def __init_subclass__(cls, **kwargs):
     super().__init_subclass__(**kwargs)
-    required_attributes = ['number', 'name', 'version', 'c_code']
+    required_attributes = ['experiment_number', 'experiment_name', 'experiment_version', 'c_code']
     for attr in required_attributes:
       if not hasattr(cls, attr):
         raise AttributeError(f"Class {cls.__name__} must define attribute {attr}")
+      
+  def calculate(self) -> None:
+    pass
 
-  def to_folder_name(self) -> str:
-    return f"{self.number}_{self.version}"
+  def get_id(self) -> str:
+    return f"{self.get_experiment_string()}_experiment"
   
   @abstractmethod
   def create_empty_results(self) -> xr.DataArray:

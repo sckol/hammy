@@ -11,9 +11,9 @@ from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
 
 class WalkExperiment(Experiment):
-  number = 1
-  name = "walk"
-  version = 1
+  experiment_number = 1
+  experiment_name = "walk"
+  experiment_version = 1
   T = 1000 # Number of steps in a single random walk
   CHECKPOINTS = [100, 200, 300, 400, 500, 600, 700, 800, 900, T]
   CHECKPOINTS_LEN = len(CHECKPOINTS)
@@ -33,7 +33,8 @@ class WalkExperiment(Experiment):
   #define BINS_MAX { BINS_TUPLE[1] - 1 }
   #define BINS_LEN { BINS_LEN }
   """
-  c_code = CCode(Path(__file__).parent / "walk.c", C_DEFINITIONS)
+
+  c_code = CCode((Path(__file__).parent / "walk.c").read_text(), C_DEFINITIONS)
 
   def create_empty_results(self) -> xr.DataArray:
     dims=["target", "checkpoint", "x"]
@@ -64,9 +65,11 @@ class WalkExperiment(Experiment):
 
 if __name__ == "__main__":
   experiment = WalkExperiment()
-  conf = MachineConfiguration(digest='645b93')
+  conf = MachineConfiguration('c31778')
   conf.resolve(no_load=False)
   conf.dump()
+  experiment.resolve(no_load=True)
+  experiment.dump()
   
   # Get access_key and secret_key from .s3_credentials.json file
   # with open(".s3_credentials.json") as f:

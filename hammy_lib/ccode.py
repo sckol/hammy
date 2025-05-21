@@ -5,7 +5,7 @@ from .simulator_platforms import SimulatorPlatforms
 @dataclass(frozen=True)
 class CCode:  
     code: str
-    constants: str | Path
+    constants: str
     function_header : str = "void run_simulation(unsigned long long loops, const unsigned long long seed,  unsigned long long* out);"
 
     def generate_include(self) -> str:
