@@ -74,6 +74,7 @@ class MachineConfiguration(DictHammyObject):
         [compiler_path] + ([] if os_name == "Windows" else ["--version"]), stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True, check=True)                
       print(compiler_version.stdout)                             
       return compiler_version.stdout.split("\n")[0].strip()           
-  
-  def get_id(self) -> str:
+
+  @property
+  def id(self) -> str:
     return f"{self.digest}_machine_configuration"

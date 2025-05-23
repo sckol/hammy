@@ -9,6 +9,8 @@ from pathlib import Path
 from hammy_lib.machine_configuration import MachineConfiguration
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
+from hammy_lib.experiment_configuration import ExperimentConfiguration
+from hammy_lib.sequential_calibrator import SequentialCalibrator
 
 class WalkExperiment(Experiment):
   experiment_number = 1
@@ -65,12 +67,15 @@ class WalkExperiment(Experiment):
 
 if __name__ == "__main__":
   experiment = WalkExperiment()
-  conf = MachineConfiguration('c31778')
+  conf = MachineConfiguration("c31778")
   conf.resolve(no_load=False)
   conf.dump()
   experiment.resolve(no_load=True)
   experiment.dump()
-  
+  experiment_configuration = ExperimentConfiguration(experiment, conf) 
+  experiment_configuration.dump()
+
+
   # Get access_key and secret_key from .s3_credentials.json file
   # with open(".s3_credentials.json") as f:
   #   credentials = json.load(f)

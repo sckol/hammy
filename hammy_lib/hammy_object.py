@@ -23,7 +23,7 @@ class HammyObject(ABC):
         continue
       if isinstance(attr_value, HammyObject):
         for k, v in  attr_value.metadata.items():
-          if k in self.metadata and self.metadata[k] != v:
+          if k in self.metadata and self.metadata[k] != v and k != 'digest':
             raise ValueError(f"Metadata conflict for {k}: {self.metadata[k]} != {v}")
           self.metadata[k] = v        
       else:                        
@@ -48,7 +48,7 @@ class HammyObject(ABC):
     result = {}  
     for cls in reversed(type(self).mro()):        
       for name, value in vars(cls).items():          
-        if not(name.startswith('_') or callable(value)):
+        if not(name.startswith('_') or callable(value) or isinstance(getattr(type(self), name, None), property)):
           result[name] = value
     instance_attrs = vars(self).items()    
     for name, value in instance_attrs:
@@ -68,29 +68,29 @@ class HammyObject(ABC):
     self.fill_metadata()
     self.resolved = True
 
-  def get_filename(self) -> str:
-    folder_name = self.get_experiment_string(error_if_not_found=False) or ""
-    return self.RESULTS_DIR / folder_name / f"{self.get_id()}.{self.get_file_extension()}"
-  
-  def get_experiment_string(self, error_if_not_found: bool = True) -> str | None:    
+  @property
+  def filename(self) -> str:
+    folder_name = self.experiment_string or ""
+    return self.RESULTS_DIR / folder_name / f"{self.id}.{self.file_extension}"
+
+  @property
+  def experiment_string(self) -> str | None:
     found = all(f"experiment_{attr}" in self.metadata for attr in ['name', 'version', 'number'])
-    if not found and error_if_not_found:
-      raise ValueError("Experiment metadata not found.")
     if not found:
       return None
     return f"{self.metadata['experiment_number']}_{self.metadata['experiment_name']}_{self.metadata['experiment_version']}"    
 
   def dump(self) -> None:
     self.resolve()
-    if not self.get_filename().parent.exists():
-      self.get_filename().parent.mkdir(parents=True, exist_ok=True)
-    self.dump_to_filename(self.get_filename())
+    if not self.filename.parent.exists():
+      self.filename.parent.mkdir(parents=True, exist_ok=True)
+    self.dump_to_filename(self.filename)
 
   def load(self) -> bool:
-    if not self.get_filename().exists():
+    if not self.filename.exists():
       return False
-    self.load_from_filename(self.get_filename())
-    print(f"Loaded cached object {self.get_id()} from file")  
+    self.load_from_filename(self.filename)
+    print(f"Loaded cached object {self.id} from file")  
     return True    
 
   @abstractmethod
@@ -105,13 +105,14 @@ class HammyObject(ABC):
   def calculate(self) -> None:
     pass
 
+  @property
   @abstractmethod
-  def get_id(self) -> str:
+  def id(self) -> str:
     pass
 
-  @staticmethod
+  @property  
   @abstractmethod
-  def get_file_extension() -> str:
+  def file_extension(self) -> str:
     pass
     
 class DictHammyObject(HammyObject):
@@ -123,7 +124,6 @@ class DictHammyObject(HammyObject):
     with open(filename, 'r') as f:      
       self.metadata = json.load(f, object_pairs_hook=OrderedDict)
 
-  @staticmethod
-  def get_file_extension() -> str:
+  @property
+  def file_extension(self) -> str:
     return 'json'
-  

@@ -1,6 +1,5 @@
 from abc import abstractmethod
 from pathlib import Path
-from multiprocessing import Pool
 import xarray as xr
 from cffi import FFI
 from time import time
@@ -25,15 +24,28 @@ class Experiment(DictHammyObject):
   def calculate(self) -> None:
     pass
 
-  def get_id(self) -> str:
-    return f"{self.get_experiment_string()}_experiment"
-  
+  @property
+  def id(self) -> str:
+    return f"{self.experiment_string}_experiment"
+
+  @property
+  def experiment_string(self) -> str:
+    return super().experiment_string
+
+  @property
+  def file_extension(self) -> str:
+    return super().file_extension
+
+  @property
+  def filename(self) -> str:
+    return super().filename
+
   @abstractmethod
   def create_empty_results(self) -> xr.DataArray:
     pass
   
   @abstractmethod
-  def simulate_using_python(loops: int, out: xr.DataArray, seed: int) -> None:
+  def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
     pass
 
   def compile(self) -> None:          
@@ -58,7 +70,7 @@ class Experiment(DictHammyObject):
   def run_single_simulation(self,  seed: int, platform: SimulatorPlatforms, loops: int, calibration_mode=False) -> xr.DataArray | float:
     print(f"Running simulation with seed {seed}...")
     out = self.simulator_constants.create_empty_results()
-    start_time = time.time()        
+    start_time = time.time()
     match platform:
         case SimulatorPlatforms.PYTHON:
             self.simulate_using_python(loops, out, seed)            
@@ -70,32 +82,3 @@ class Experiment(DictHammyObject):
             raise ValueError(f"Unknown platform: {platform}")
     elapsed_time = time.time() - start_time    
     return elapsed_time if calibration_mode else out
-  
-  def run_simulation_thread(self,  seed: int, thread_id: int, loops_by_platform: CalibrationResults, calibration_mode=False) -> xr.DataArray | float:    
-    platform = SimulatorPlatforms.CFFI if thread_id == 0 else SimulatorPlatforms.PYTHON
-    return self.run_single_simulation(seed + thread_id, platform, loops_by_platform[platform], calibration_mode)
-      
-  def run_parallel_simulations(self, seed: int, pool: Pool, use_cuda: bool, loops_by_platform: CalibrationResults, calibration_mode=False) -> xr.DataArray | CalibrationResults:
-    res = pool.map(partial(self.run_simulation_thread, seed=seed, loops_by_platform=loops_by_platform, calibration_mode=calibration_mode), 
-            list(range(self.threads))) 
-    if calibration_mode:
-      def time_to_loops(time: float, platform: SimulatorPlatforms) -> int:
-        return int(loops_by_platform[platform] / time * 60)
-      results = {SimulatorPlatforms.PYTHON: time_to_loops(res[0], SimulatorPlatforms.PYTHON)}
-      cffi_times = res[1:-1] if use_cuda else res[1:]
-      min_cffi = min(cffi_times)
-      max_cffi = max(cffi_times)
-      if max_cffi > min_cffi * 1.25:
-        raise ValueError("CFFI times vary too much between threads")
-      results[SimulatorPlatforms.CFFI] = time_to_loops(sum(cffi_times) / len(cffi_times), SimulatorPlatforms.CFFI)
-      if use_cuda:
-        results[SimulatorPlatforms.CUDA] = time_to_loops(res[-1], SimulatorPlatforms.CUDA)
-      return results    
-    python_result = res[0]
-    cffi_results = res[1:-1] if use_cuda else res[1:]
-    cuda_result = res[-1] if use_cuda else None
-    cffi_combined = sum(cffi_results[1:], cffi_results[0])
-    platform_results = [python_result, cffi_combined]
-    if use_cuda:
-      platform_results.append(cuda_result)
-    return xr.concat(platform_results, dim=pd.Index([p.name for p in [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + ([SimulatorPlatforms.CUDA] if use_cuda else [])], name='platform'))
