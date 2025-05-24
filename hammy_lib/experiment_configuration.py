@@ -93,8 +93,10 @@ class ExperimentConfiguration(DictHammyObject):
             list(range(self.threads)),
         )
         if calibration_mode:
+
             def time_to_loops(time: float, platform: SimulatorPlatforms) -> int:
                 return int(loops_by_platform[platform] / time * 60)
+
             results = {
                 SimulatorPlatforms.PYTHON: time_to_loops(
                     res[0], SimulatorPlatforms.PYTHON

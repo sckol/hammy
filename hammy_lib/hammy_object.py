@@ -5,125 +5,143 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from collections import OrderedDict
 
+
 class HammyObject(ABC):
-  RESULTS_DIR = Path('results')
+    RESULTS_DIR = Path("results")
 
-  @staticmethod
-  def generate_digest(s: str) -> str:    
-    return hex(abs(int(hashlib.sha256(s.encode()).hexdigest(), 16)))[2:].zfill(6)[:6]
+    @staticmethod
+    def generate_digest(s: str) -> str:
+        return hex(abs(int(hashlib.sha256(s.encode()).hexdigest(), 16)))[2:].zfill(6)[
+            :6
+        ]
 
-  def __init__(self, digest: str | None=None):    
-    self.resolved = False
-    self.metadata = OrderedDict()    
-    self.digest: str | None = digest
+    def __init__(self, digest: str | None = None):
+        self.resolved = False
+        self.metadata = OrderedDict()
+        self.digest: str | None = digest
 
-  def fill_metadata(self) -> None:    
-    for attr_name, attr_value in self.get_all_variables().items():
-      if attr_name in ['metadata', 'digest', 'resolved', 'RESULTS_DIR']:
-        continue
-      if isinstance(attr_value, HammyObject):
-        for k, v in  attr_value.metadata.items():
-          if k in self.metadata and self.metadata[k] != v and k != 'digest':
-            raise ValueError(f"Metadata conflict for {k}: {self.metadata[k]} != {v}")
-          self.metadata[k] = v        
-      else:                        
-        self.metadata[attr_name] = self.value_to_clear_string(attr_value)
-    new_digest = self.generate_digest(json.dumps({k: v for k, v in self.metadata.items() if k != 'digest'}, sort_keys=True))  
-    if self.digest is None:
-      self.digest = new_digest
-    elif self.digest != new_digest:
-      raise ValueError(f"Digest mismatch: {self.digest} != {new_digest}")    
-    self.metadata['digest'] = self.digest
-    self.metadata.move_to_end('digest', last=False)
+    def fill_metadata(self) -> None:
+        for attr_name, attr_value in self.get_all_variables().items():
+            if attr_name in ["metadata", "digest", "resolved", "RESULTS_DIR"]:
+                continue
+            if isinstance(attr_value, HammyObject):
+                for k, v in attr_value.metadata.items():
+                    if k in self.metadata and self.metadata[k] != v and k != "digest":
+                        raise ValueError(
+                            f"Metadata conflict for {k}: {self.metadata[k]} != {v}"
+                        )
+                    self.metadata[k] = v
+            else:
+                self.metadata[attr_name] = self.value_to_clear_string(attr_value)
+        new_digest = self.generate_digest(
+            json.dumps(
+                {k: v for k, v in self.metadata.items() if k != "digest"},
+                sort_keys=True,
+            )
+        )
+        if self.digest is None:
+            self.digest = new_digest
+        elif self.digest != new_digest:
+            raise ValueError(f"Digest mismatch: {self.digest} != {new_digest}")
+        self.metadata["digest"] = self.digest
+        self.metadata.move_to_end("digest", last=False)
 
-  @staticmethod
-  def value_to_clear_string(object: object) -> str:
-    str_value = re.sub(r'[\r\n]+', ' ', str(object)).strip()    
-    str_value = re.sub(r'\s+', ' ', str_value)
-    if len(str_value) > 255:
-      str_value = HammyObject.generate_digest(str_value)
-    return str_value
+    @staticmethod
+    def value_to_clear_string(object: object) -> str:
+        str_value = re.sub(r"[\r\n]+", " ", str(object)).strip()
+        str_value = re.sub(r"\s+", " ", str_value)
+        if len(str_value) > 255:
+            str_value = HammyObject.generate_digest(str_value)
+        return str_value
 
-  def get_all_variables(self) -> dict:
-    result = {}  
-    for cls in reversed(type(self).mro()):        
-      for name, value in vars(cls).items():          
-        if not(name.startswith('_') or callable(value) or isinstance(getattr(type(self), name, None), property)):
-          result[name] = value
-    instance_attrs = vars(self).items()    
-    for name, value in instance_attrs:
-      if not(name.startswith('_') or callable(value)):
-        result[name] = value  
-    return result
+    def get_all_variables(self) -> dict:
+        result = {}
+        for cls in reversed(type(self).mro()):
+            for name, value in vars(cls).items():
+                if not (
+                    name.startswith("_")
+                    or callable(value)
+                    or isinstance(getattr(type(self), name, None), property)
+                ):
+                    result[name] = value
+        instance_attrs = vars(self).items()
+        for name, value in instance_attrs:
+            if not (name.startswith("_") or callable(value)):
+                result[name] = value
+        return result
 
-  def resolve(self, no_load=False) -> None:
-    if self.resolved:
-      return
-    # Iterate over all attributes of the class and resolve all HammyObjects    
-    for _, attr_value in vars(self).items():
-      if isinstance(attr_value, HammyObject):        
-          attr_value.resolve(no_load=no_load)        
-    if no_load or not self.load():
-      self.calculate()
-    self.fill_metadata()
-    self.resolved = True
+    def resolve(self, no_load=False) -> None:
+        if self.resolved:
+            return
+        # Iterate over all attributes of the class and resolve all HammyObjects
+        for _, attr_value in vars(self).items():
+            if isinstance(attr_value, HammyObject):
+                attr_value.resolve(no_load=no_load)
+        if no_load or not self.load():
+            self.calculate()
+        self.fill_metadata()
+        self.resolved = True
 
-  @property
-  def filename(self) -> str:
-    folder_name = self.experiment_string or ""
-    return self.RESULTS_DIR / folder_name / f"{self.id}.{self.file_extension}"
+    @property
+    def filename(self) -> str:
+        folder_name = self.experiment_string or ""
+        return self.RESULTS_DIR / folder_name / f"{self.id}.{self.file_extension}"
 
-  @property
-  def experiment_string(self) -> str | None:
-    found = all(f"experiment_{attr}" in self.metadata for attr in ['name', 'version', 'number'])
-    if not found:
-      return None
-    return f"{self.metadata['experiment_number']}_{self.metadata['experiment_name']}_{self.metadata['experiment_version']}"    
+    @property
+    def experiment_string(self) -> str | None:
+        found = all(
+            f"experiment_{attr}" in self.metadata
+            for attr in ["name", "version", "number"]
+        )
+        if not found:
+            return None
+        return f"{self.metadata['experiment_number']}_{self.metadata['experiment_name']}_{self.metadata['experiment_version']}"
 
-  def dump(self) -> None:
-    self.resolve()
-    if not self.filename.parent.exists():
-      self.filename.parent.mkdir(parents=True, exist_ok=True)
-    self.dump_to_filename(self.filename)
+    def dump(self) -> None:
+        self.resolve()
+        if not self.filename.parent.exists():
+            self.filename.parent.mkdir(parents=True, exist_ok=True)
+        self.dump_to_filename(self.filename)
 
-  def load(self) -> bool:
-    if not self.filename.exists():
-      return False
-    self.load_from_filename(self.filename)
-    print(f"Loaded cached object {self.id} from file")  
-    return True    
+    def load(self) -> bool:
+        if not self.filename.exists():
+            return False
+        self.load_from_filename(self.filename)
+        print(f"Loaded cached object {self.id} from file")
+        return True
 
-  @abstractmethod
-  def dump_to_filename(self, filename: str) -> None:
-    pass
+    @abstractmethod
+    def dump_to_filename(self, filename: str) -> None:
+        pass
 
-  @abstractmethod  
-  def load_from_filename(self, filename: str) -> None:
-    pass
+    @abstractmethod
+    def load_from_filename(self, filename: str) -> None:
+        pass
 
-  @abstractmethod
-  def calculate(self) -> None:
-    pass
+    @abstractmethod
+    def calculate(self) -> None:
+        pass
 
-  @property
-  @abstractmethod
-  def id(self) -> str:
-    pass
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        pass
 
-  @property  
-  @abstractmethod
-  def file_extension(self) -> str:
-    pass
-    
+    @property
+    @abstractmethod
+    def file_extension(self) -> str:
+        pass
+
+
 class DictHammyObject(HammyObject):
-  def dump_to_filename(self, filename: str) -> None:
-    with open(filename, 'w') as f:
-      json.dump(self.metadata, f, indent=2)
+    def dump_to_filename(self, filename: str) -> None:
+        with open(filename, "w") as f:
+            json.dump(self.metadata, f, indent=2)
 
-  def load_from_filename(self, filename: str) -> None:    
-    with open(filename, 'r') as f:      
-      self.metadata = json.load(f, object_pairs_hook=OrderedDict)
+    def load_from_filename(self, filename: str) -> None:
+        with open(filename, "r") as f:
+            self.metadata = json.load(f, object_pairs_hook=OrderedDict)
 
-  @property
-  def file_extension(self) -> str:
-    return 'json'
+    @property
+    def file_extension(self) -> str:
+        return "json"
