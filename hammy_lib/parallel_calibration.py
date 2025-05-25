@@ -66,4 +66,4 @@ class ParallelCalibration(DictHammyObject):
         return calibration_results_from_plain_dict(data)
 
     def generate_id(self) -> str:
-        return f"{self.experiment_configuration.experiment_configuration_string}_parallel_calibrator"
+        return f"{self.experiment_configuration.experiment_configuration_string}_parallel_calibration"

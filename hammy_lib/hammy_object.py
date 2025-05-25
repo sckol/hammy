@@ -4,6 +4,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from collections import OrderedDict
+import xarray as xr
 
 
 class HammyObject(ABC):
@@ -26,14 +27,18 @@ class HammyObject(ABC):
                 continue
             if isinstance(attr_value, HammyObject):
                 for k, v in attr_value.metadata.items():
-                    if k in self.metadata and self.metadata[k] != v and k != "id":
+                    if (
+                        k in self.metadata
+                        and self.metadata[k] != v
+                        and k not in ("id", "simulation_level")
+                    ):
                         raise ValueError(
                             f"Metadata conflict for {k}: {self.metadata[k]} != {v}"
                         )
                     self.metadata[k] = v
             else:
                 self.metadata[attr_name] = self.value_to_clear_string(attr_value)
-        new_id = self.id        
+        new_id = self.id
         if self._id is None:
             self._id = new_id
         elif self._id != new_id:
@@ -121,8 +126,8 @@ class HammyObject(ABC):
     @abstractmethod
     def generate_id(self) -> str:
         pass
-    
-    @property    
+
+    @property
     def id(self) -> str:
         return self._id or self.generate_id()
 
@@ -144,3 +149,38 @@ class DictHammyObject(HammyObject):
     @property
     def file_extension(self) -> str:
         return "json"
+
+
+class ArrayHammyObject(HammyObject):
+    def __init__(self, id=None):
+        super().__init__(id)
+        self._results: xr.DataArray | None = None
+
+    @property
+    def results(self) -> xr.DataArray | None:
+        return self._results
+
+    def dump_to_filename(self, filename: str) -> None:
+        self._results.name = "results"
+        self._results.attrs.update(
+            {k: v for k, v in self.metadata.items() if v is not None}
+        )
+        encoding = {
+            "zlib": True,
+            "complevel": 5,
+            "dtype": "float32"
+            if self._results.dtype == "float64"
+            else self._results.dtype,
+        }
+        self._results.to_netcdf(
+            filename, engine="h5netcdf", encoding={"results": encoding}
+        )
+
+    def load_from_filename(self, filename: str) -> None:
+        with xr.open_dataarray(filename, engine="h5netcdf") as f:
+            self._results = f.load()
+        self.metadata = OrderedDict(self._results.attrs)
+
+    @property
+    def file_extension(self) -> str:
+        return "nc"
