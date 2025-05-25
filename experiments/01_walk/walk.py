@@ -11,7 +11,8 @@ from hammy_lib.machine_configuration import MachineConfiguration
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
 from hammy_lib.experiment_configuration import ExperimentConfiguration
-from hammy_lib.sequential_calibrator import SequentialCalibrator
+from hammy_lib.sequential_calibration import SequentialCalibration
+from hammy_lib.parallel_calibration import ParallelCalibration
 
 
 class WalkExperiment(Experiment):
@@ -43,40 +44,42 @@ class WalkExperiment(Experiment):
     def create_empty_results(self) -> xr.DataArray:
         dims = ["target", "checkpoint", "x"]
         coords = {
-            "x": np.arange(*BINS_TUPLE),
-            "target": TARGETS,
-            "checkpoint": CHECKPOINTS,
+            "x": np.arange(*self.BINS_TUPLE),
+            "target": self.TARGETS,
+            "checkpoint": self.CHECKPOINTS,
         }
         return xr.DataArray(
             np.zeros(tuple(len(coords[i]) for i in dims)), coords=coords, dims=dims
         )
 
-    def simulate_using_python(loops: int, out: xr.DataArray, seed: int) -> None:
+    def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
         for _ in range(loops):
             data = None
             rng = np.random.default_rng(seed)
-            diffs = np.diff(CHECKPOINTS, prepend=0).tolist()
-            steps = rng.binomial(np.tile(diffs, (NUMPY_WIDTH, 1)), 0.75)
+            diffs = np.diff(self.CHECKPOINTS, prepend=0).tolist()
+            steps = rng.binomial(np.tile(diffs, (self.NUMPY_WIDTH, 1)), 0.75)
             data = rng.binomial(steps, 0.5) - steps / 2
             data = np.cumsum(data, axis=-1)
-            for target_idx, target in enumerate(TARGETS):
+            for target_idx, target in enumerate(self.TARGETS):
                 if target != 0:
                     data[data[:, -1] == -target, :] *= -1
-                for c in range(CHECKPOINTS_LEN):
+                for c in range(self.CHECKPOINTS_LEN):
                     out[target_idx, c, :] += np.histogram(
-                        data[data[:, -1] == target, c], bins=BINS
+                        data[data[:, -1] == target, c], bins=self.BINS
                     )[0]
 
 
 if __name__ == "__main__":
     experiment = WalkExperiment()
-    conf = MachineConfiguration("c31778")
-    conf.resolve(no_load=False)
-    conf.dump()
-    experiment.resolve(no_load=True)
     experiment.dump()
-    experiment_configuration = ExperimentConfiguration(experiment, conf)
+    conf = MachineConfiguration("c31778_machine_configuration")    
+    conf.dump()    
+    experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
     experiment_configuration.dump()
+    sequential_calibration = SequentialCalibration(experiment_configuration)
+    sequential_calibration.dump()
+    parallel_calibration = ParallelCalibration(sequential_calibration)
+    parallel_calibration.dump()
 
     # Get access_key and secret_key from .s3_credentials.json file
     # with open(".s3_credentials.json") as f:

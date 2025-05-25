@@ -9,18 +9,18 @@ from .experiment_configuration import ExperimentConfiguration
 from .simulator_platforms import SimulatorPlatforms
 
 
-class SequentialCalibrator(DictHammyObject):
+class SequentialCalibration(DictHammyObject):
     def __init__(
-        self, experiment_configuration: ExperimentConfiguration, digest: str = None
+        self, experiment_configuration: ExperimentConfiguration, id: str = None
     ) -> None:
-        super().__init__(digest=digest)
+        super().__init__(id=id)
         self.experiment_configuration = experiment_configuration
 
     def run_single_calibration(self, platform: SimulatorPlatforms) -> float:
         loops = 1000
         while True:
             print(f"Running calibration with {loops} loops...")
-            elapsed_time = self.run_single_simulation(
+            elapsed_time = self.experiment_configuration.run_single_simulation(
                 platform, loops, calibration_mode=True
             )
             print(f"Simulation took {elapsed_time:.2f} seconds")
@@ -30,7 +30,7 @@ class SequentialCalibrator(DictHammyObject):
                 print(f"Estimated {one_min_loops} loops needed for 1 minute")
                 # Run with calculated loops
                 print(f"Running verification with {one_min_loops} loops...")
-                elapsed_time = self.run_single_simulation(
+                elapsed_time = self.experiment_configuration.run_single_simulation(
                     platform, one_min_loops, calibration_mode=True
                 )
                 print(f"Verification took {elapsed_time:.2f} seconds")
@@ -54,11 +54,8 @@ class SequentialCalibrator(DictHammyObject):
 
     @property
     def sequential_calibration_results(self) -> CalibrationResults:
-        if "sequential_calibration_results" not in self.metadata:
-            return None
         data = json.loads(self.metadata["sequential_calibration_results"])
         return calibration_results_from_plain_dict(data)
 
-    @property
-    def id(self) -> str:
-        return f"{self.simulator.digest}_sequential_calibrator"
+    def generate_id(self) -> str:
+        return f"{self.experiment_configuration.experiment_configuration_string}_sequential_calibration"

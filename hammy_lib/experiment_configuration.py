@@ -19,9 +19,9 @@ class ExperimentConfiguration(DictHammyObject):
         machine_configuration: MachineConfiguration,
         seed: Optional[int] = None,
         threads: Optional[int] = None,
-        digest: Optional[str] = None,
+        id: Optional[str] = None,
     ) -> None:
-        super().__init__(digest=digest)
+        super().__init__(id=id)
         self.experiment = experiment
         self.machine_configuration = machine_configuration
         self.seed = seed or int(time() * 1000)
@@ -32,8 +32,11 @@ class ExperimentConfiguration(DictHammyObject):
         self._pool = Pool(threads)
 
     @property
-    def id(self) -> str:
-        return f"{self.experiment.experiment_string}_{self.machine_configuration.digest}_experiment_configuration"
+    def experiment_configuration_string(self) -> str:
+        return f"{self.experiment.experiment_string}_{self.machine_configuration.digest}"
+
+    def generate_id(self) -> str:
+        return f"{self.experiment_configuration_string}_experiment_configuration"
 
     @property
     def file_extension(self) -> str:
@@ -64,9 +67,11 @@ class ExperimentConfiguration(DictHammyObject):
         self.seed += 1
         return result
 
+    @staticmethod
     def run_simulation_thread(
-        self,
         thread_id: int,
+        experiment: Experiment,
+        seed: int,                
         loops_by_platform: CalibrationResults,
         calibration_mode=False,
     ) -> xr.DataArray | float:
@@ -74,8 +79,8 @@ class ExperimentConfiguration(DictHammyObject):
         platform = (
             SimulatorPlatforms.CFFI if thread_id == 0 else SimulatorPlatforms.PYTHON
         )
-        return self.experiment.run_single_simulation(
-            self.seed + thread_id,
+        return experiment.run_single_simulation(
+            seed + thread_id,
             platform,
             loops_by_platform[platform],
             calibration_mode,
@@ -87,6 +92,8 @@ class ExperimentConfiguration(DictHammyObject):
         res = self.pool.map(
             partial(
                 self.run_simulation_thread,
+                experiment=self.experiment,
+                seed=self.seed,
                 loops_by_platform=loops_by_platform,
                 calibration_mode=calibration_mode,
             ),

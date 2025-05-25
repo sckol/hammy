@@ -15,36 +15,31 @@ class HammyObject(ABC):
             :6
         ]
 
-    def __init__(self, digest: str | None = None):
+    def __init__(self, id: str | None = None):
         self.resolved = False
         self.metadata = OrderedDict()
-        self.digest: str | None = digest
+        self._id: str | None = id
 
     def fill_metadata(self) -> None:
         for attr_name, attr_value in self.get_all_variables().items():
-            if attr_name in ["metadata", "digest", "resolved", "RESULTS_DIR"]:
+            if attr_name in ["metadata", "id", "resolved", "RESULTS_DIR"]:
                 continue
             if isinstance(attr_value, HammyObject):
                 for k, v in attr_value.metadata.items():
-                    if k in self.metadata and self.metadata[k] != v and k != "digest":
+                    if k in self.metadata and self.metadata[k] != v and k != "id":
                         raise ValueError(
                             f"Metadata conflict for {k}: {self.metadata[k]} != {v}"
                         )
                     self.metadata[k] = v
             else:
                 self.metadata[attr_name] = self.value_to_clear_string(attr_value)
-        new_digest = self.generate_digest(
-            json.dumps(
-                {k: v for k, v in self.metadata.items() if k != "digest"},
-                sort_keys=True,
-            )
-        )
-        if self.digest is None:
-            self.digest = new_digest
-        elif self.digest != new_digest:
-            raise ValueError(f"Digest mismatch: {self.digest} != {new_digest}")
-        self.metadata["digest"] = self.digest
-        self.metadata.move_to_end("digest", last=False)
+        new_id = self.id        
+        if self._id is None:
+            self._id = new_id
+        elif self._id != new_id:
+            raise ValueError(f"ID mismatch: {self._id} != {new_id}")
+        self.metadata["id"] = self._id
+        self.metadata.move_to_end("id", last=False)
 
     @staticmethod
     def value_to_clear_string(object: object) -> str:
@@ -77,6 +72,7 @@ class HammyObject(ABC):
         for _, attr_value in vars(self).items():
             if isinstance(attr_value, HammyObject):
                 attr_value.resolve(no_load=no_load)
+        self.fill_metadata()  # To get the correct id
         if no_load or not self.load():
             self.calculate()
         self.fill_metadata()
@@ -122,10 +118,13 @@ class HammyObject(ABC):
     def calculate(self) -> None:
         pass
 
-    @property
     @abstractmethod
-    def id(self) -> str:
+    def generate_id(self) -> str:
         pass
+    
+    @property    
+    def id(self) -> str:
+        return self._id or self.generate_id()
 
     @property
     @abstractmethod

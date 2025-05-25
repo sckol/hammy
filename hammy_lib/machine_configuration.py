@@ -1,3 +1,4 @@
+import json
 import platform
 import subprocess
 import psutil
@@ -102,5 +103,13 @@ class MachineConfiguration(DictHammyObject):
             return compiler_version.stdout.split("\n")[0].strip()
 
     @property
-    def id(self) -> str:
+    def digest(self) -> str:
+        return self.generate_digest(
+            json.dumps(
+                {k: v for k, v in self.metadata.items() if k != "id"},
+                sort_keys=True,
+            )
+        )
+    
+    def generate_id(self) -> str:
         return f"{self.digest}_machine_configuration"

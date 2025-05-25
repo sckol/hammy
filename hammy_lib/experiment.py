@@ -32,8 +32,7 @@ class Experiment(DictHammyObject):
     def calculate(self) -> None:
         pass
 
-    @property
-    def id(self) -> str:
+    def generate_id(self) -> str:
         return f"{self.experiment_string}_experiment"
 
     @property
@@ -88,8 +87,8 @@ class Experiment(DictHammyObject):
         calibration_mode=False,
     ) -> xr.DataArray | float:
         print(f"Running simulation with seed {seed}...")
-        out = self.simulator_constants.create_empty_results()
-        start_time = time.time()
+        out = self.create_empty_results()
+        start_time = time()
         match platform:
             case SimulatorPlatforms.PYTHON:
                 self.simulate_using_python(loops, out, seed)
@@ -99,5 +98,5 @@ class Experiment(DictHammyObject):
                 raise ValueError(f"CUDA platform not implemented yet")
             case _:
                 raise ValueError(f"Unknown platform: {platform}")
-        elapsed_time = time.time() - start_time
+        elapsed_time = time() - start_time
         return elapsed_time if calibration_mode else out
