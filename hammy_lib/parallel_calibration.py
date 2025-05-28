@@ -12,12 +12,14 @@ class ParallelCalibration(DictHammyObject):
     def __init__(
         self,
         sequential_calibration: SequentialCalibration,
-        calibration_tolerance=25,
+        calibration_tolerance=None,
         id: str = None,
     ) -> None:
         super().__init__(id=id)
         self.sequential_calibration = sequential_calibration
-        self.calibration_tolerance = calibration_tolerance
+        self.calibration_tolerance = calibration_tolerance or (
+            10000 if sequential_calibration.dry_run else 25
+        )
 
     @property
     def experiment_configuration(self):

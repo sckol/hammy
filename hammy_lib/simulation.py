@@ -5,6 +5,8 @@ from .parallel_calibration import ParallelCalibration
 
 
 class Simulation(ArrayHammyObject):
+    _not_checked_fields = ['simulation_level']
+
     def __init__(
         self,
         parallel_calibration: ParallelCalibration,

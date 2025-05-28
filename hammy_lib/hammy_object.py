@@ -16,6 +16,14 @@ class HammyObject(ABC):
             :6
         ]
 
+    @classmethod
+    def get_not_checked_fields(cls) -> list[str]:
+        fields = ["id"]
+        for base_cls in cls.__mro__:
+            if hasattr(base_cls, "_not_checked_fields"):
+                fields.extend(base_cls._not_checked_fields)
+        return set(fields)
+
     def __init__(self, id: str | None = None):
         self.resolved = False
         self.metadata = OrderedDict()
@@ -30,7 +38,7 @@ class HammyObject(ABC):
                     if (
                         k in self.metadata
                         and self.metadata[k] != v
-                        and k not in ("id", "simulation_level")
+                        and k not in self.get_not_checked_fields()
                     ):
                         raise ValueError(
                             f"Metadata conflict for {k}: {self.metadata[k]} != {v}"
@@ -53,20 +61,25 @@ class HammyObject(ABC):
         if len(str_value) > 255:
             str_value = HammyObject.generate_digest(str_value)
         return str_value
+    
+    @staticmethod
+    def is_regular_field(name, value, type):
+        return not (
+            name.startswith("_")
+            or isinstance(value, (classmethod, staticmethod))
+            or callable(value)
+            or isinstance(getattr(type, name, None), property)
+        )
 
     def get_all_variables(self) -> dict:
         result = {}
         for cls in reversed(type(self).mro()):
             for name, value in vars(cls).items():
-                if not (
-                    name.startswith("_")
-                    or callable(value)
-                    or isinstance(getattr(type(self), name, None), property)
-                ):
+                if self.is_regular_field(name, value, cls):
                     result[name] = value
         instance_attrs = vars(self).items()
         for name, value in instance_attrs:
-            if not (name.startswith("_") or callable(value)):
+            if self.is_regular_field(name, value, type(self)):
                 result[name] = value
         return result
 
@@ -106,6 +119,7 @@ class HammyObject(ABC):
 
     def load(self) -> bool:
         if not self.filename.exists():
+            print(f"Not found the file {self.id}")
             return False
         self.load_from_filename(self.filename)
         print(f"Loaded cached object {self.id} from file")

@@ -14,7 +14,7 @@ from hammy_lib.experiment_configuration import ExperimentConfiguration
 from hammy_lib.sequential_calibration import SequentialCalibration
 from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
-
+from hammy_lib.calculations.argmax import ArgMaxCalculation
 
 class WalkExperiment(Experiment):
     experiment_number = 1
@@ -77,12 +77,14 @@ if __name__ == "__main__":
     conf.dump()    
     experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
     experiment_configuration.dump()
-    sequential_calibration = SequentialCalibration(experiment_configuration)
+    sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=True)
     sequential_calibration.dump()
     parallel_calibration = ParallelCalibration(sequential_calibration)
     parallel_calibration.dump()
     simulation = Simulation(parallel_calibration, simulation_level=4)
     simulation.dump()
+    argmax = ArgMaxCalculation(simulation, ['x'])
+    argmax.dump()
 
     # Get access_key and secret_key from .s3_credentials.json file
     # with open(".s3_credentials.json") as f:
