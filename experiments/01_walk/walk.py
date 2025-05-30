@@ -16,6 +16,7 @@ from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
 from hammy_lib.calculations.argmax import ArgMaxCalculation
 
+
 class WalkExperiment(Experiment):
     experiment_number = 1
     experiment_name = "walk"
@@ -73,19 +74,34 @@ class WalkExperiment(Experiment):
 if __name__ == "__main__":
     experiment = WalkExperiment()
     experiment.dump()
-    conf = MachineConfiguration("c31778_machine_configuration")    
-    conf.dump()    
-    experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
+    conf = MachineConfiguration("c31778_machine_configuration")
+    conf.dump()
+    experiment_configuration = ExperimentConfiguration(
+        experiment, conf, seed=1748065639484
+    )
     experiment_configuration.dump()
-    sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=True)
+    sequential_calibration = SequentialCalibration(
+        experiment_configuration, dry_run=True
+    )
     sequential_calibration.dump()
     parallel_calibration = ParallelCalibration(sequential_calibration)
     parallel_calibration.dump()
     simulation = Simulation(parallel_calibration, simulation_level=4)
     simulation.dump()
-    argmax = ArgMaxCalculation(simulation, ['x'])
+    argmax = ArgMaxCalculation(simulation, ["x"])
     argmax.dump()
+    print(simulation.results)
+    from hammy_lib.vizualization import visualize
+    import matplotlib.pyplot as plt
 
+    visualize(
+        simulation.results,
+        x="checkpoint",
+        y="target",
+        axis="x",
+        filter={"checkpoint": [300, 500, 700], "level": 4, "x": list(range(-10, 10))},
+    )
+    plt.show()
     # Get access_key and secret_key from .s3_credentials.json file
     # with open(".s3_credentials.json") as f:
     #   credentials = json.load(f)
