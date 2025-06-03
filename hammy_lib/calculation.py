@@ -103,12 +103,14 @@ class Calculation(ArrayHammyObject):
         self._results = xr.combine_by_coords(results)
 
     def generate_id(self) -> str:
+        return f"{self.main_input.id}_{self.simple_name.lower()}"
+
+    @property
+    def simple_name(self) -> str:
         class_name = self.__class__.__name__
         if class_name.endswith("Calculation"):
             class_name = class_name[: -len("Calculation")]
-        else:
-            raise ValueError("Class name must end with 'Calculation'")
-        return f"{self.main_input.id}_{class_name.lower()}"
+            return class_name        
 
 
 class FlexDimensionCalculation(Calculation):

@@ -54,3 +54,7 @@ class Simulation(ArrayHammyObject):
 
     def generate_id(self) -> str:
         return f"{self.experiment_configuration.experiment_configuration_string}_simulation_{self.simulation_level}"
+    
+    @property
+    def simple_name(self) -> str:
+        return "Simulation"

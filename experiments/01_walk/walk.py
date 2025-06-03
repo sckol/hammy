@@ -1,4 +1,3 @@
-import json
 import xarray as xr
 import numpy as np
 
@@ -15,6 +14,7 @@ from hammy_lib.sequential_calibration import SequentialCalibration
 from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
 from hammy_lib.calculations.argmax import ArgMaxCalculation
+from hammy_lib.vizualization import Vizualization
 
 
 class WalkExperiment(Experiment):
@@ -51,13 +51,15 @@ class WalkExperiment(Experiment):
             "checkpoint": self.CHECKPOINTS,
         }
         return xr.DataArray(
-            np.zeros(tuple(len(coords[i]) for i in dims)), coords=coords, dims=dims
+            np.zeros(tuple(len(coords[i]) for i in dims), dtype=np.int64),
+            coords=coords,
+            dims=dims,
         )
 
     def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
+        rng = np.random.default_rng(seed)
         for _ in range(loops):
-            data = None
-            rng = np.random.default_rng(seed)
+            data = None            
             diffs = np.diff(self.CHECKPOINTS, prepend=0).tolist()
             steps = rng.binomial(np.tile(diffs, (self.NUMPY_WIDTH, 1)), 0.75)
             data = rng.binomial(steps, 0.5) - steps / 2
@@ -74,6 +76,8 @@ class WalkExperiment(Experiment):
 if __name__ == "__main__":
     experiment = WalkExperiment()
     experiment.dump()
+    #from hammy_lib.simulator_platforms import SimulatorPlatforms
+    #experiment.run_single_simulation(1000, SimulatorPlatforms.PYTHON, 100, False)
     conf = MachineConfiguration("c31778_machine_configuration")
     conf.dump()
     experiment_configuration = ExperimentConfiguration(
@@ -89,19 +93,16 @@ if __name__ == "__main__":
     simulation = Simulation(parallel_calibration, simulation_level=4)
     simulation.dump()
     argmax = ArgMaxCalculation(simulation, ["x"])
-    argmax.dump()
-    print(simulation.results)
-    from hammy_lib.vizualization import visualize
-    import matplotlib.pyplot as plt
-
-    visualize(
-        simulation.results,
-        x="checkpoint",
-        y="target",
-        axis="x",
-        filter={"checkpoint": [300, 500, 700], "level": 4, "x": list(range(-10, 10))},
-    )
-    plt.show()
+    argmax.dump()    
+    viz = Vizualization(
+        argmax,
+        x="target",
+        y="level",
+        axis="checkpoint", 
+        comparison={"platform": 'PYTHON'},       
+        filter={"platform": 'TOTAL'},
+    )  
+    viz.dump()  
     # Get access_key and secret_key from .s3_credentials.json file
     # with open(".s3_credentials.json") as f:
     #   credentials = json.load(f)

@@ -33,7 +33,9 @@ class ExperimentConfiguration(DictHammyObject):
 
     @property
     def experiment_configuration_string(self) -> str:
-        return f"{self.experiment.experiment_string}_{self.machine_configuration.digest}"
+        return (
+            f"{self.experiment.experiment_string}_{self.machine_configuration.digest}"
+        )
 
     def generate_id(self) -> str:
         return f"{self.experiment_configuration_string}_experiment_configuration"
@@ -71,13 +73,13 @@ class ExperimentConfiguration(DictHammyObject):
     def run_simulation_thread(
         thread_id: int,
         experiment: Experiment,
-        seed: int,                
+        seed: int,
         loops_by_platform: CalibrationResults,
         calibration_mode=False,
     ) -> xr.DataArray | float:
         # Each thread gets a unique seed
         platform = (
-            SimulatorPlatforms.CFFI if thread_id == 0 else SimulatorPlatforms.PYTHON
+            SimulatorPlatforms.PYTHON if thread_id == 0 else SimulatorPlatforms.CFFI
         )
         return experiment.run_single_simulation(
             seed + thread_id,

@@ -198,3 +198,8 @@ class ArrayHammyObject(HammyObject):
     @property
     def file_extension(self) -> str:
         return "nc"
+    
+    @property
+    @abstractmethod
+    def simple_name(self) -> str:
+        pass
