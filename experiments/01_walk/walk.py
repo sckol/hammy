@@ -85,7 +85,7 @@ if __name__ == "__main__":
     )
     experiment_configuration.dump()
     sequential_calibration = SequentialCalibration(
-        experiment_configuration, dry_run=True
+        experiment_configuration, dry_run=False
     )
     sequential_calibration.dump()
     parallel_calibration = ParallelCalibration(sequential_calibration)
@@ -120,12 +120,14 @@ if __name__ == "__main__":
     # argmax_calculator = ArgMaxCalculator(extended_results, ['target', 'checkpoint'])
     # print(argmax_calculator.calculate())
 
-#  simulator.dump_simulation_results(simulation_results)
-# Calculate extended dataset (all platforms and cumulative)
-# Write dask computation
-# Calculate mean position for each target and time
-# Calculate chi suqared test for each target and time
-# Run random quality test and fail it via bug in CFFI rng argument
-# Define csc calculation
-# Calculate csc position
-# Visualize
+# Allow to switch down aggregation in vizualization (raise an error)
+# Add/test reference lines
+# Calculate ton-5 most frequent positions, make csc calculation for them
+# Make "trim" calculation where we detect the number of positions > 1e-9 for a whole dataset (we must get two)
+# Calculate "theorethical" positions and fit the number of steps based on theoretical positions
+# Estimate the number of probes and if it correspond to the real one (i.e. they are independent)
+
+# Negative probability
+# Consider we have a function with negative values and we need to "normalize" it. Then we represent it as a difference 
+# of two functions, one for particles, other for antiparticles. And instead of one series event we generate two. Then
+# we "annihilate" particles and antiparticles with some probability.
