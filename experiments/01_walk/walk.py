@@ -1,10 +1,6 @@
 import xarray as xr
 import numpy as np
 import json 
-# from hammy_lib.simulator import Simulator
-# from hammy_lib.util import SimulatorConstants, CCode, Experiment, generate_random_seed
-# from hammy_lib.yandex_cloud_storage import YandexCloudStorage
-# from hammy_lib.calculator import Calculator, ArgMaxCalculator
 from pathlib import Path
 from hammy_lib.machine_configuration import MachineConfiguration
 from hammy_lib.experiment import Experiment

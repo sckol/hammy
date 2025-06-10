@@ -10,7 +10,7 @@ import xarray as xr
 
 class HammyObject(ABC):
     RESULTS_DIR = Path("results")
-    STORAGE = None
+    _STORAGE = None
     _no_check_metadata = False
 
     @staticmethod
@@ -34,7 +34,7 @@ class HammyObject(ABC):
 
     def fill_metadata(self) -> None:
         for attr_name, attr_value in self.get_all_variables().items():
-            if attr_name in ["metadata", "id", "resolved", "RESULTS_DIR"]:
+            if attr_name in ["metadata", "id", "resolved", "RESULTS_DIR", "STORAGE"]:
                 continue
             if isinstance(attr_value, HammyObject):
                 for k, v in attr_value.metadata.items():
@@ -122,7 +122,7 @@ class HammyObject(ABC):
 
     def load(self) -> bool:
         if not self.filename.exists() and self.STORAGE:
-            self.STORAGE.download(self)
+            self.STORAGE.download_object(self)
         if not self.filename.exists():
             print(f"Not found the file {self.id}")
             return False
