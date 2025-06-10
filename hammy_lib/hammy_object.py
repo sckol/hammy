@@ -10,7 +10,7 @@ import xarray as xr
 
 class HammyObject(ABC):
     RESULTS_DIR = Path("results")
-    _STORAGE = None
+    STORAGE = None
     _no_check_metadata = False
 
     @staticmethod
