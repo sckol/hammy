@@ -1,3 +1,4 @@
+from math import e
 import re
 import json
 import hashlib
@@ -9,6 +10,8 @@ import xarray as xr
 
 class HammyObject(ABC):
     RESULTS_DIR = Path("results")
+    STORAGE = None
+    _no_check_metadata = False
 
     @staticmethod
     def generate_digest(s: str) -> str:
@@ -61,7 +64,7 @@ class HammyObject(ABC):
         if len(str_value) > 255:
             str_value = HammyObject.generate_digest(str_value)
         return str_value
-    
+
     @staticmethod
     def is_regular_field(name, value, type):
         return not (
@@ -118,10 +121,23 @@ class HammyObject(ABC):
         self.dump_to_filename(self.filename)
 
     def load(self) -> bool:
+        if not self.filename.exists() and self.STORAGE:
+            self.STORAGE.download(self)
         if not self.filename.exists():
             print(f"Not found the file {self.id}")
             return False
-        self.load_from_filename(self.filename)
+        if not self._no_check_metadata:
+            old_metadata = self.metadata.copy()
+            self.load_from_filename(self.filename)            
+            differences = {
+                k: (old_metadata.get(k), self.metadata[k])
+                for k in set(old_metadata) | set(self.metadata)
+                if old_metadata.get(k) != self.metadata.get(k)
+            }
+            if differences:
+                raise ValueError(f"Metadata mismatch for {self.id}: {differences}")
+        else:
+            self.load_from_filename(self.filename)
         print(f"Loaded cached object {self.id} from file")
         return True
 
@@ -198,7 +214,7 @@ class ArrayHammyObject(HammyObject):
     @property
     def file_extension(self) -> str:
         return "nc"
-    
+
     @property
     @abstractmethod
     def simple_name(self) -> str:

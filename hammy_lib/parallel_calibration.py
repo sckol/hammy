@@ -9,6 +9,8 @@ from .sequential_calibration import SequentialCalibration
 
 
 class ParallelCalibration(DictHammyObject):
+    _no_check_metadata = True  # Skip metadata check for parallel calibration
+
     def __init__(
         self,
         sequential_calibration: SequentialCalibration,

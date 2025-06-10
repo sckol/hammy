@@ -1,6 +1,6 @@
 import xarray as xr
 import numpy as np
-
+import json 
 # from hammy_lib.simulator import Simulator
 # from hammy_lib.util import SimulatorConstants, CCode, Experiment, generate_random_seed
 # from hammy_lib.yandex_cloud_storage import YandexCloudStorage
@@ -15,6 +15,7 @@ from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
 from hammy_lib.calculations.argmax import ArgMaxCalculation
 from hammy_lib.vizualization import Vizualization
+from hammy_lib.yandex_cloud_storage import YandexCloudStorage
 
 
 class WalkExperiment(Experiment):
@@ -99,10 +100,16 @@ if __name__ == "__main__":
         x="target",
         y="level",
         axis="checkpoint", 
-        comparison={"platform": 'PYTHON'},       
+        comparison={"platform": ['PYTHON']},       
         filter={"platform": 'TOTAL'},
+        allow_aggregation=False,
+        reference=lambda da: da.coords["checkpoint"] / experiment.T * da.coords["target"]
     )  
-    viz.dump()  
+    #viz.dump() 
+    with open(".s3_credentials.json") as f:
+      credentials = json.load(f)
+    storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])
+    storage.upload()
     # Get access_key and secret_key from .s3_credentials.json file
     # with open(".s3_credentials.json") as f:
     #   credentials = json.load(f)

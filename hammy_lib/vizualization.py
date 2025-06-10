@@ -23,6 +23,7 @@ class Vizualization(HammyObject):
         reference: Optional[Callable] = None,
         y_axis_label: Optional[str] = None,
         id: str = None,
+        allow_aggregation: bool = True,
     ):
         super().__init__(id=id)
         self.results_object = results_object
@@ -36,6 +37,7 @@ class Vizualization(HammyObject):
         self.y_axis_label = y_axis_label
         self._figure = None
         self._axes = None
+        self.allow_aggregation = allow_aggregation
 
     @property
     def file_extension(self) -> str:
@@ -85,7 +87,16 @@ class Vizualization(HammyObject):
         dims_to_sum = [
             dim for dim in data.dims if dim not in [axis, groupby] and dim is not None
         ]
-        plot_data = data.sum(dims_to_sum) if dims_to_sum else data
+        if self.allow_aggregation:
+            plot_data = data.sum(dims_to_sum) if dims_to_sum else data
+        else:
+            # Check that all dims_to_sum have only one element
+            for dim in dims_to_sum:
+                if data.sizes[dim] != 1:
+                    raise ValueError(
+                        f"Dimension '{dim}' has size {data.sizes[dim]}, but allow_aggregation is False. Only singleton dimensions are allowed. Please filter or aggregate your data before plotting."
+                    )
+            plot_data = data
         linestyle = "--" if is_comparison else "-"
         alpha = 0.95
         marker = "o"
@@ -321,5 +332,4 @@ class Vizualization(HammyObject):
         # Load metadata from PNG using Pillow
         pil_img = Image.open(filename)
         pnginfo = pil_img.info
-        self.metadata = json.loads(pnginfo["hammy"], object_pairs_hook=OrderedDict)
-        print(self.metadata)
+        self.metadata = json.loads(pnginfo["hammy"], object_pairs_hook=OrderedDict)        

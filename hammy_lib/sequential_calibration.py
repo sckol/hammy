@@ -10,6 +10,8 @@ from .simulator_platforms import SimulatorPlatforms
 
 
 class SequentialCalibration(DictHammyObject):
+    _no_check_metadata = True
+
     def __init__(
         self,
         experiment_configuration: ExperimentConfiguration,
@@ -40,7 +42,9 @@ class SequentialCalibration(DictHammyObject):
                 )
                 print(f"Verification took {elapsed_time:.2f} seconds")
                 # Final adjustment
-                final_loops = int(one_min_loops * 60 * dry_run_multiplier / elapsed_time)
+                final_loops = int(
+                    one_min_loops * 60 * dry_run_multiplier / elapsed_time
+                )
                 print(f"Final calibration: {final_loops} loops per minute")
                 return final_loops
             loops *= 2
