@@ -1,5 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass
+
+from matplotlib.pylab import f
 from .simulator_platforms import SimulatorPlatforms
 
 
@@ -38,3 +40,7 @@ class CCode:
             with open(lib_path / lib / f"{lib}.h", "r") as f:
                 res.append(f.read())
         return "\n".join(res)
+
+    def __str__(self):
+        return f"{self.generate_include()}\n{self.code}"
+        

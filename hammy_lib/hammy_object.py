@@ -32,7 +32,7 @@ class HammyObject(ABC):
         self.metadata = OrderedDict()
         self._id: str | None = id
 
-    def fill_metadata(self) -> None:
+    def fill_metadata(self, no_check: bool = False) -> None:
         for attr_name, attr_value in self.get_all_variables().items():
             if attr_name in ["metadata", "id", "resolved", "RESULTS_DIR", "STORAGE"]:
                 continue
@@ -43,9 +43,11 @@ class HammyObject(ABC):
                         and self.metadata[k] != v
                         and k not in self.get_not_checked_fields()
                     ):
-                        raise ValueError(
-                            f"Metadata conflict for {k}: {self.metadata[k]} != {v}"
-                        )
+                        if no_check:
+                            print(f"[WARNING] Metadata conflict for {k}: {self.metadata[k]} != {v}")
+                        else:
+                            raise ValueError(
+                                f"Metadata conflict for {k}: {self.metadata[k]} != {v}")
                     self.metadata[k] = v
             else:
                 self.metadata[attr_name] = self.value_to_clear_string(attr_value)
@@ -53,7 +55,10 @@ class HammyObject(ABC):
         if self._id is None:
             self._id = new_id
         elif self._id != new_id:
-            raise ValueError(f"ID mismatch: {self._id} != {new_id}")
+            if no_check:
+                print(f"[WARNING] ID mismatch: {self._id} != {new_id}")
+            else:
+                raise ValueError(f"ID mismatch: {self._id} != {new_id}")
         self.metadata["id"] = self._id
         self.metadata.move_to_end("id", last=False)
 
@@ -86,17 +91,17 @@ class HammyObject(ABC):
                 result[name] = value
         return result
 
-    def resolve(self, no_load=False) -> None:
+    def resolve(self, no_load=False, no_check: bool = False) -> None:
         if self.resolved:
             return
         # Iterate over all attributes of the class and resolve all HammyObjects
         for _, attr_value in vars(self).items():
             if isinstance(attr_value, HammyObject):
-                attr_value.resolve(no_load=no_load)
-        self.fill_metadata()  # To get the correct id
-        if no_load or not self.load():
+                attr_value.resolve(no_load=no_load, no_check=no_check)
+        self.fill_metadata(no_check=no_check)  # To get the correct id
+        if no_load or not self.load(no_check=no_check):
             self.calculate()
-        self.fill_metadata()
+        self.fill_metadata(no_check=no_check)
         self.resolved = True
 
     @property
@@ -114,13 +119,13 @@ class HammyObject(ABC):
             return None
         return f"{self.metadata['experiment_number']}_{self.metadata['experiment_name']}_{self.metadata['experiment_version']}"
 
-    def dump(self) -> None:
-        self.resolve()
+    def dump(self, no_check: bool = False) -> None:
+        self.resolve(no_check=no_check)
         if not self.filename.parent.exists():
             self.filename.parent.mkdir(parents=True, exist_ok=True)
         self.dump_to_filename(self.filename)
 
-    def load(self) -> bool:
+    def load(self, no_check: bool = False) -> bool:
         if not self.filename.exists() and self.STORAGE:
             self.STORAGE.download_object(self)
         if not self.filename.exists():
@@ -128,14 +133,17 @@ class HammyObject(ABC):
             return False
         if not self._no_check_metadata:
             old_metadata = self.metadata.copy()
-            self.load_from_filename(self.filename)            
+            self.load_from_filename(self.filename)
             differences = {
                 k: (old_metadata.get(k), self.metadata[k])
                 for k in set(old_metadata) | set(self.metadata)
                 if old_metadata.get(k) != self.metadata.get(k)
             }
             if differences:
-                raise ValueError(f"Metadata mismatch for {self.id}: {differences}")
+                if no_check:
+                    print(f"[WARNING] Metadata mismatch for {self.id}: {differences}")
+                else:
+                    raise ValueError(f"Metadata mismatch for {self.id}: {differences}")
         else:
             self.load_from_filename(self.filename)
         print(f"Loaded cached object {self.id} from file")
