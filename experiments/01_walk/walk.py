@@ -2,6 +2,7 @@ import xarray as xr
 import numpy as np
 import json 
 from pathlib import Path
+from hammy_lib import graph
 from hammy_lib.machine_configuration import MachineConfiguration
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
@@ -9,6 +10,8 @@ from hammy_lib.experiment_configuration import ExperimentConfiguration
 from hammy_lib.sequential_calibration import SequentialCalibration
 from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
+from hammy_lib.graph import CircularGraph, LinearGraph
+from hammy_lib.calculations.position import PositionCalculation
 from hammy_lib.calculations.argmax import ArgMaxCalculation
 from hammy_lib.vizualization import Vizualization
 from hammy_lib.yandex_cloud_storage import YandexCloudStorage
@@ -88,40 +91,55 @@ if __name__ == "__main__":
     parallel_calibration = ParallelCalibration(sequential_calibration)
     parallel_calibration.dump()
     simulation = Simulation(parallel_calibration, simulation_level=4)
-    simulation.dump()
-    argmax = ArgMaxCalculation(simulation, ["x"])
-    argmax.dump()    
+    simulation.dump()    
+    simulation._results = simulation.results.rename({"x": "position_index"})
+    simulation._results = simulation.results.assign_coords(
+        position_index=np.arange(WalkExperiment.BINS_LEN)
+    )    
+    circular_graph = CircularGraph(WalkExperiment.BINS_LEN)
+    position = PositionCalculation(simulation, graph=circular_graph, dimensionality=10, max_power=WalkExperiment.T)
+    position.dump()
+
+    # Add to position.results a new coordinate to dimension "position_data" with values position
+    # It must be nan if [position_data=nonzero_count] is greater than 2, otherwise it must be weighted average of
+    # [position_data=index0, position_data=index1] with weights [position_data=value0, position_data=value1]
+    # Also if [position_data=nonzero_count] is exactly 2,  get nan if abs([position_data=index0] - [position_data=index1]) != 1
+    # def weighted_average_two_positions(row):
+    #   nonzero = np.flatnonzero(row.values)
+    #   if len(nonzero) != 2:
+    #     return np.nan
+    #   idx0, idx1 = nonzero
+    #   val0, val1 = row.values[idx0], row.values[idx1]
+    #   if abs(idx0 - idx1) != 1:
+    #     return np.nan
+    #   return (idx0 * val0 + idx1 * val1) / (val0 + val1)
+    
+    # weighted_avg = position.results.reduce(
+    #   weighted_average_two_positions, dim="position_index"
+    # )
+
+    # position.results = position.results.assign_coords(
+    #   position_data=("position_data", ["weighted_average"])
+    # )
+    # position.results = position.results.expand_dims("position_data")
+    # position.results.loc[{"position_data": "weighted_average"}] = weighted_avg
+    # argmax = ArgMaxCalculation(simulation, ["x"])
+    # argmax.dump()    
     viz = Vizualization(
-        argmax,
-        x="target",
-        y="level",
-        axis="checkpoint", 
-        comparison={"platform": ['PYTHON']},       
-        filter={"platform": 'TOTAL'},
-        allow_aggregation=False,
-        reference=lambda da: da.coords["checkpoint"] / experiment.T * da.coords["target"]
-    )  
-    #viz.dump() 
-    with open(".s3_credentials.json") as f:
-      credentials = json.load(f)
-    storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])
-    storage.upload()
-    # Get access_key and secret_key from .s3_credentials.json file
+        position,
+        x="platform",
+        y="target",        
+        axis="checkpoint",       
+        filter={"position_data": 'power', "level": 4},
+        comparison={"position_data": "nonzero_count"},
+        allow_aggregation=False,        
+    )
+    viz.dump() 
     # with open(".s3_credentials.json") as f:
     #   credentials = json.load(f)
     # storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])
-    #
-    # simulator = Simulator(EXPERIMENT, N, simulate, C_CODE, use_cuda=False, seed=generate_random_seed(), digest="103fbf")
-    # storage.download_simulator_results(simulator)
-    # simulator.compile()
-    # calibration_results = simulator.run_parallel_calibration()
-    # simulator.dump_calibration_results(calibration_results)
-    # simulation_results = simulator.run_level_simulation(2)
-    # simulator.dump_simulation_results(simulation_results)
-    # simulation_results = simulator.load_simulation_results()
-    # extended_results = Calculator.extend_simulation_results(simulation_results)
-    # argmax_calculator = ArgMaxCalculator(extended_results, ['target', 'checkpoint'])
-    # print(argmax_calculator.calculate())
+    # storage.upload()
+
 
 # Allow to switch down aggregation in vizualization (raise an error)
 # Add/test reference lines

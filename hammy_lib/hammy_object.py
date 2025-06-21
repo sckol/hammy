@@ -192,10 +192,10 @@ class DictHammyObject(HammyObject):
 class ArrayHammyObject(HammyObject):
     def __init__(self, id=None):
         super().__init__(id)
-        self._results: xr.DataArray | None = None
+        self._results: xr.DataArray | xr.Dataset | None = None
 
     @property
-    def results(self) -> xr.DataArray | None:
+    def results(self) -> xr.DataArray | xr.Dataset | None:
         return self._results
 
     def dump_to_filename(self, filename: str) -> None:

@@ -97,7 +97,7 @@ class Calculation(ArrayHammyObject):
                 # If result is already an xarray, ensure it has the right coordinates
                 for dim in required_dims:
                     if dim not in result.coords:
-                        result = result.assign_coords({dim: coords_dict[dim]})
+                        result = result.expand_dims({dim: [coords_dict[dim]]})
                 results.append(result)
         # Combine all results
         self._results = xr.combine_by_coords(results)
