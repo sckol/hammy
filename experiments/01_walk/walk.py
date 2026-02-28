@@ -2,7 +2,7 @@ import xarray as xr
 import numpy as np
 import json 
 from pathlib import Path
-from hammy_lib import graph
+from hammy_lib.calculations.popsize import PopulationSizeCalculation
 from hammy_lib.machine_configuration import MachineConfiguration
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
@@ -10,6 +10,8 @@ from hammy_lib.experiment_configuration import ExperimentConfiguration
 from hammy_lib.sequential_calibration import SequentialCalibration
 from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
+from hammy_lib.simulator_platforms import SimulatorPlatforms
+from hammy_lib.calculations.popsize import PopulationSizeCalculation, bridged_random_walk_distribution
 from hammy_lib.graph import CircularGraph, LinearGraph
 from hammy_lib.calculations.position import PositionCalculation
 from hammy_lib.calculations.argmax import ArgMaxCalculation
@@ -61,8 +63,10 @@ class WalkExperiment(Experiment):
         for _ in range(loops):
             data = None            
             diffs = np.diff(self.CHECKPOINTS, prepend=0).tolist()
-            steps = rng.binomial(np.tile(diffs, (self.NUMPY_WIDTH, 1)), 0.75)
-            data = rng.binomial(steps, 0.5) - steps / 2
+            #steps = rng.binomial(np.tile(diffs, (self.NUMPY_WIDTH, 1)), 0.75)
+            #data = rng.binomial(steps, 0.5) - steps / 2
+            steps = np.tile(diffs, (self.NUMPY_WIDTH, 1))          # deterministic number of micro-steps
+            data = rng.binomial(steps, 0.5) - (steps / 2)          # (R - L)/2, matches your C scaling
             data = np.cumsum(data, axis=-1)
             for target_idx, target in enumerate(self.TARGETS):
                 if target != 0:
@@ -75,8 +79,7 @@ class WalkExperiment(Experiment):
 
 if __name__ == "__main__":
     experiment = WalkExperiment()
-    experiment.dump()
-    #from hammy_lib.simulator_platforms import SimulatorPlatforms
+    experiment.dump()    
     #experiment.run_single_simulation(1000, SimulatorPlatforms.PYTHON, 100, False)
     conf = MachineConfiguration("c31778_machine_configuration")
     conf.dump()
@@ -95,10 +98,12 @@ if __name__ == "__main__":
     simulation._results = simulation.results.rename({"x": "position_index"})
     simulation._results = simulation.results.assign_coords(
         position_index=np.arange(WalkExperiment.BINS_LEN)
-    )    
-    circular_graph = CircularGraph(WalkExperiment.BINS_LEN)
-    position = PositionCalculation(simulation, graph=circular_graph, dimensionality=10, max_power=WalkExperiment.T)
-    position.dump()
+    )
+    popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
+    popsize.dump()
+    # circular_graph = CircularGraph(WalkExperiment.BINS_LEN)
+    # position = PositionCalculation(simulation, graph=circular_graph, dimensionality=10, max_power=WalkExperiment.T)
+    # position.dump()
 
     # Add to position.results a new coordinate to dimension "position_data" with values position
     # It must be nan if [position_data=nonzero_count] is greater than 2, otherwise it must be weighted average of
@@ -124,14 +129,15 @@ if __name__ == "__main__":
     # position.results = position.results.expand_dims("position_data")
     # position.results.loc[{"position_data": "weighted_average"}] = weighted_avg
     # argmax = ArgMaxCalculation(simulation, ["x"])
-    # argmax.dump()    
+    # argmax.dump()
+    print(popsize.results) 
     viz = Vizualization(
-        position,
-        x="platform",
-        y="target",        
-        axis="checkpoint",       
-        filter={"position_data": 'power', "level": 4},
-        comparison={"position_data": "nonzero_count"},
+        popsize,
+        x="target",
+        y="checkpoint",        
+        axis="level",       
+        filter={"platform": "PYTHON"},
+        #comparison={"platform": "CFFI"},
         allow_aggregation=False,        
     )
     viz.dump() 

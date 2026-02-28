@@ -44,7 +44,7 @@ class Calculator(abc.ABC):
         return extended_results
 
     @abc.abstractmethod
-    def calculate_unit(self, input: xr.DataArray) -> xr.DataArray | int | float | bool:
+    def calculate_unit(self, input: xr.DataArray, coords: dict) -> xr.DataArray | int | float | bool:
         pass
 
     def calculate(self) -> xr.DataArray:
@@ -70,8 +70,8 @@ class Calculator(abc.ABC):
             coords_dict = {dim: indices[i] for i, dim in enumerate(required_dims)}
             # Select the data for these coordinates
             selected_data = self.input.sel(coords_dict)
-            # Apply calculate_unit method
-            result = self.calculate_unit(selected_data)
+            # Apply calculate_unit method (pass current coordinates too)
+            result = self.calculate_unit(selected_data, coords_dict)
             # Store the result with its coordinates
             if self.simple_type_return:
                 # Create array shape based on number of dimensions (all singleton)
@@ -106,7 +106,7 @@ class MeanCalculator(Calculator):
         # excep platform, level and parallilaable_dimensions. If it contains 0 such dimensions, throw error
         super(simulation_results, parallelizable_dimensions, simple_type_return)
 
-    def calculate_unit(input):
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict):
         """Given the input is an N-dimensional xarray with  that contains unnormalized
         distribution of N-dimensional variable return an 1-dimensional xarray (domension='coordinate')
         of length N with marginal mean by each dimension. If N=1 return a single value"""
@@ -128,7 +128,7 @@ class ArgMaxCalculator(Calculator):
         simple_type_return = len(extra_dims) == 1
         super().__init__(simulation_results, independent_dimensions, simple_type_return)
 
-    def calculate_unit(self, input_array: xr.DataArray):
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict):
         """Given the input is an N-dimensional xarray that contains unnormalized
         distribution of N-dimensional variable, return a 1-dimensional xarray (dimension='coordinate')
         of length N with the most popular combination of coordinates. If N=1 return a single value with the most popular value.
@@ -168,7 +168,7 @@ class RandomnessTestCalculator(Calculator):
         super(simulation_results, simple_type_return=True)
         self.theoretical_values = theoretical_values
 
-    def calculate_unit():
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict):
         # for each dimension except platform, level and parallelizable diensions calculate
         # number of samples and variance and then chi-square test value. Does multivalue
         # chi square test ever exist?
@@ -217,7 +217,7 @@ class SCSCalculator(Calculator):
         approximation = get_approximation(width_in_steps, data)
         return approximation["info"]["pobj"] - np.linalg.norm(approximation["x"], 2)
 
-    def calculate_unit():
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict):
         optimization_results = optimize.minimize_scalar(
             get_approximation_error, method="bounded", bounds=(10, N.T), args=(data,)
         )

@@ -36,7 +36,7 @@ class PositionCalculation(Calculation):
     def simple_type_return(self):
         return False
 
-    def calculate_unit(self, input_array: xr.DataArray) -> xr.DataArray:
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict) -> xr.DataArray:
         eigvals = self.graph.results["eigenvalues"].values
         eigvecs = self.graph.results['eigenvectors'].values
         x = input_array.values        

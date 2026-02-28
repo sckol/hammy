@@ -9,7 +9,7 @@ class ArgMaxCalculation(FlexDimensionCalculation):
     def simple_type_return(self) -> bool:
         return len(self.dimensions) == 1
     
-    def calculate_unit(self, input_array: xr.DataArray):
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict):
         """Given the input is an N-dimensional xarray that contains unnormalized
         distribution of N-dimensional variable, return a 1-dimensional xarray (dimension='coordinate')
         of length N with the most popular combination of coordinates. If N=1 return a single value with the most popular value.

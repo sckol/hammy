@@ -52,7 +52,17 @@ class Calculation(ArrayHammyObject):
         return extended_results
 
     @abstractmethod
-    def calculate_unit(self, input: xr.DataArray) -> xr.DataArray | int | float | bool:
+    def calculate_unit(self, input: xr.DataArray, coords: dict) -> xr.DataArray | int | float | bool:
+        """Calculate a single unit given a selected DataArray slice and the
+        current coordinates dictionary.
+
+        Args:
+            input: xarray DataArray selected for the current coordinates
+            coords: dict mapping dimension names to their current coordinate values
+
+        Returns:
+            xr.DataArray or a simple type (int/float/bool)
+        """
         pass
 
     def calculate(self) -> None:
@@ -78,8 +88,8 @@ class Calculation(ArrayHammyObject):
             coords_dict = {dim: indices[i] for i, dim in enumerate(required_dims)}
             # Select the data for these coordinates
             selected_data = main_input_results.sel(coords_dict)
-            # Apply calculate_unit method
-            result = self.calculate_unit(selected_data)
+            # Apply calculate_unit method (pass current coordinates too)
+            result = self.calculate_unit(selected_data, coords_dict)
             # Store the result with its coordinates
             if self.simple_type_return:
                 # Create array shape based on number of dimensions (all singleton)
