@@ -1,0 +1,3 @@
+- Bra-ket notation is conditional operation
+- Complex amplitudes OR probabilities need to be done if we take square roots of steps
+- Momentum space is just the space of different target points after N steps

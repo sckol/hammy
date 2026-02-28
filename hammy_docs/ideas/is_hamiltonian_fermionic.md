@@ -1,0 +1,3 @@
+#hamiltonian #cellural_automata #antisymmetry #fock_space
+In Wikipedia article about [Fock Space](https://en.wikipedia.org/wiki/Fock_space) there is that it is a direct sum of antisymmetric tensors of single particles.
+In Hamiltonian mechanics, tensor $d \omega = d p \wedge d q$ is also antisymmetric. Maybe that means that Hamiltonian motion can be represented as a cellural automate where two particles cannot be located in the same cell.

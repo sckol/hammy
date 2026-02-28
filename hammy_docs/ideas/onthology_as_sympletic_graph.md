@@ -1,0 +1,1 @@
+Can we consider a knowledge graph which is a triple (a, b, link) as a sympletic space with form $w=a link \wedge b link$ 
