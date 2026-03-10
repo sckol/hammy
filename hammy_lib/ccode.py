@@ -1,7 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
 
-from matplotlib.pylab import f
 from .simulator_platforms import SimulatorPlatforms
 
 

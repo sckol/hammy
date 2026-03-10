@@ -7,7 +7,6 @@ from .calibration_results import CalibrationResults
 import xarray as xr
 from typing import Optional
 from functools import partial
-import pandas as pd
 from time import time
 import psutil
 
@@ -101,6 +100,7 @@ class ExperimentConfiguration(DictHammyObject):
             ),
             list(range(self.threads)),
         )
+        self.seed += self.threads
         if calibration_mode:
 
             def time_to_loops(time: float, platform: SimulatorPlatforms) -> int:
@@ -131,14 +131,10 @@ class ExperimentConfiguration(DictHammyObject):
         platform_results = [python_result, cffi_combined]
         if self.use_cuda:
             platform_results.append(cuda_result)
+        platforms = [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + (
+            [SimulatorPlatforms.CUDA] if self.use_cuda else []
+        )
         return xr.concat(
             platform_results,
-            dim=pd.Index(
-                [
-                    p.name
-                    for p in [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI]
-                    + ([SimulatorPlatforms.CUDA] if self.use_cuda else [])
-                ],
-                name="platform",
-            ),
+            dim=xr.DataArray([p.name for p in platforms], dims="platform"),
         )

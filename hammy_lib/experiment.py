@@ -61,7 +61,7 @@ class Experiment(DictHammyObject):
         ffi_sources = [
             str(Path(__file__).parent / "c_libs" / lib / f"{lib}.c") for lib in ffi_libs
         ]
-        ffi.set_source("hammy_cpu_kernel", self.ffi_source, sources=ffi_sources)
+        ffi.set_source("hammy_cpu_kernel", "#define FROM_PYTHON\n" + str(self.c_code), sources=ffi_sources)
         ffi.cdef(self.c_code.function_header)
         output_dir = Path().parent / "build_cffi"
         ffi.compile(

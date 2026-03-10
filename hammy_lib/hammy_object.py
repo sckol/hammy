@@ -1,4 +1,3 @@
-from math import e
 import re
 import json
 import hashlib
@@ -134,10 +133,12 @@ class HammyObject(ABC):
         if not self._no_check_metadata:
             old_metadata = self.metadata.copy()
             self.load_from_filename(self.filename)
+            not_checked = self.get_not_checked_fields()
             differences = {
-                k: (old_metadata.get(k), self.metadata[k])
+                k: (old_metadata.get(k), self.metadata.get(k))
                 for k in set(old_metadata) | set(self.metadata)
                 if old_metadata.get(k) != self.metadata.get(k)
+                and k not in not_checked
             }
             if differences:
                 if no_check:

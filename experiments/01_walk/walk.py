@@ -79,9 +79,10 @@ class WalkExperiment(Experiment):
 
 if __name__ == "__main__":
     experiment = WalkExperiment()
-    experiment.dump()    
+    experiment.dump()
+    experiment.compile()
     #experiment.run_single_simulation(1000, SimulatorPlatforms.PYTHON, 100, False)
-    conf = MachineConfiguration("c31778_machine_configuration")
+    conf = MachineConfiguration()
     conf.dump()
     experiment_configuration = ExperimentConfiguration(
         experiment, conf, seed=1748065639484
@@ -94,11 +95,7 @@ if __name__ == "__main__":
     parallel_calibration = ParallelCalibration(sequential_calibration)
     parallel_calibration.dump()
     simulation = Simulation(parallel_calibration, simulation_level=4)
-    simulation.dump()    
-    simulation._results = simulation.results.rename({"x": "position_index"})
-    simulation._results = simulation.results.assign_coords(
-        position_index=np.arange(WalkExperiment.BINS_LEN)
-    )
+    simulation.dump()
     popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
     popsize.dump()
     # circular_graph = CircularGraph(WalkExperiment.BINS_LEN)
