@@ -124,7 +124,7 @@ if __name__ == "__main__":
     popsize.dump()
     graph = LinearGraph(WalkExperiment.BINS_LEN)
     graph.dump()
-    position = PositionCalculation(simulation, graph=graph, dimensionality=1, max_power=WalkExperiment.T, spatial_dims=("x",))    
+    position = PositionCalculation(simulation, graph=graph, dimensionality=2, spatial_dims=("x",))
     position.dump()
 
     last_level = int(simulation.results.level.values[-1])
@@ -159,4 +159,14 @@ if __name__ == "__main__":
         filter={"checkpoint": 500, },
         reference=lambda data: np.ones(len(data.coords["level"].values)),
         y_axis_label="1/φ",
+    ).dump()
+
+    Vizualization(
+        results_object=position,
+        x="platform",
+        y="target",
+        axis="level",
+        filter={"checkpoint": 500, "position_data": "nonzero_count"},
+        reference=lambda data: np.full(len(data.coords["level"].values), 2.0),
+        y_axis_label="NNLS component count",
     ).dump()

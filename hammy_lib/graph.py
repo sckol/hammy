@@ -32,25 +32,20 @@ class Graph(ArrayHammyObject):
 
 
 class LinearGraph(Graph):
+    """Linear chain with lazy walk: P(stay)=0.5, P(±1)=0.25.
+
+    Boundary nodes have self-loop probability 0.75 (= 0.5 + 0.25 reflected inward).
+    Matches the effective bin dynamics of walk.c, which steps ±1 in raw position
+    and stores raw//2 as the bin.
+    """
     def __init__(self, length: int, id: str = None):
         tm = np.zeros((length, length))
         for i in range(length):
+            tm[i, i] = 0.5
             if i > 0:
-                tm[i, i - 1] = 0.5
+                tm[i, i - 1] = 0.25
             if i < length - 1:
-                tm[i, i + 1] = 0.5
-        # Fix endpoints to only move inward
-        tm[0, 1] = 1.0
-        tm[0, 0] = 0.0
-        tm[-1, -2] = 1.0
-        tm[-1, -1] = 0.0
-        super().__init__(tm, id)
-
-
-class CircularGraph(Graph):
-    def __init__(self, length: int, id: str = None):
-        tm = np.zeros((length, length))
-        for i in range(length):
-            tm[i, (i - 1) % length] = 0.5
-            tm[i, (i + 1) % length] = 0.5
+                tm[i, i + 1] = 0.25
+        tm[0, 0] = 0.75
+        tm[-1, -1] = 0.75
         super().__init__(tm, id)
