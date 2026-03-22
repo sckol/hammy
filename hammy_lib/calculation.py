@@ -9,6 +9,29 @@ from .simulation import Simulation
 
 
 class Calculation(ArrayHammyObject):
+    """Base class for post-processing computations on simulation results.
+
+    A Calculation takes an ArrayHammyObject (typically a Simulation) and applies
+    a function to slices of its data. The key concept is the split between
+    "independent dimensions" and "data dimensions":
+
+    - independent_dimensions: iterated over (all coordinate combinations are
+      enumerated). Always includes level and platform.
+    - The remaining dimensions form the data slice passed to calculate_unit().
+
+    For example, if input has dims (level, platform, target, x) and
+    independent_dimensions = [level, platform, target], then calculate_unit()
+    receives a 1D array along x for each (level, platform, target) combination.
+
+    When the input is a Simulation, extend_simulation_results() is called first
+    to add cumulative sums across levels and a TOTAL platform.
+
+    Subclasses must define:
+    - independent_dimensions: which dims to iterate over
+    - simple_type_return: True if calculate_unit returns a scalar, False for DataArray
+    - calculate_unit(): the actual computation on each slice
+    """
+
     _not_checked_fields = ["main_input"]
 
     def __init__(
@@ -124,6 +147,13 @@ class Calculation(ArrayHammyObject):
 
 
 class FlexDimensionCalculation(Calculation):
+    """Calculation where independent_dimensions are derived automatically.
+
+    Instead of listing what to iterate over, you list the "data dimensions" --
+    the ones that calculate_unit() operates on. Everything else becomes
+    independent and gets iterated.
+    """
+
     def __init__(
         self,
         main_input: ArrayHammyObject,
