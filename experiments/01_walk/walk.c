@@ -71,9 +71,11 @@ __EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const u
   __WARP_END
 }
 
+#ifndef FROM_PYTHON
 int main() {
   unsigned long long out[TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
   memset(out, 0, sizeof(out));
   run_simulation(50000, 1111111111, (long long *) &out);
   1+1;
 }
+#endif
