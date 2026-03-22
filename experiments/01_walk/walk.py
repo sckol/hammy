@@ -1,9 +1,40 @@
+def _try_enable_mkl():
+    """Find libmkl_rt and restart the process with LD_PRELOAD if not already active."""
+    import os, sys, glob, ctypes.util
+    if "libmkl_rt" in os.environ.get("LD_PRELOAD", ""):
+        return
+    candidates = set()
+    # {venv or conda prefix}/lib/
+    for prefix in {sys.prefix, os.path.join(os.path.dirname(sys.executable), "..")}:
+        candidates.update(glob.glob(os.path.join(prefix, "lib", "libmkl_rt*")))
+    # one level above any site-packages / dist-packages on sys.path
+    for sp in sys.path:
+        if "site-packages" in sp or "dist-packages" in sp:
+            candidates.update(glob.glob(os.path.join(os.path.dirname(sp), "libmkl_rt*")))
+            candidates.update(glob.glob(os.path.join(sp, "*", "libmkl_rt*")))
+    # system search via ld.so / LD_LIBRARY_PATH
+    found = ctypes.util.find_library("mkl_rt")
+    if found and os.path.isabs(found):
+        candidates.add(found)
+    for path in candidates:
+        if os.path.isfile(path):
+            print(f"[MKL] Using {os.path.basename(path)} from {os.path.dirname(path)}", flush=True)
+            os.environ["LD_PRELOAD"] = path
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+
+_try_enable_mkl()
+
 import xarray as xr
 import numpy as np
-import json 
+import json
+import matplotlib.pyplot as plt
 from pathlib import Path
-from hammy_lib.calculations.popsize import PopulationSizeCalculation
+from hammy_lib.hammy_object import HammyObject
 from hammy_lib.machine_configuration import MachineConfiguration
+
+# Use the shared results dir at hammy root (contains cached simulation data).
+# Remove this line to use the local results/ dir (experiments/01_walk/results/).
+HammyObject.RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
 from hammy_lib.experiment_configuration import ExperimentConfiguration
@@ -12,11 +43,9 @@ from hammy_lib.parallel_calibration import ParallelCalibration
 from hammy_lib.simulation import Simulation
 from hammy_lib.simulator_platforms import SimulatorPlatforms
 from hammy_lib.calculations.popsize import PopulationSizeCalculation, bridged_random_walk_distribution
-from hammy_lib.graph import CircularGraph, LinearGraph
+from hammy_lib.graph import LinearGraph
 from hammy_lib.calculations.position import PositionCalculation
-from hammy_lib.calculations.argmax import ArgMaxCalculation
 from hammy_lib.vizualization import Vizualization
-from hammy_lib.yandex_cloud_storage import YandexCloudStorage
 
 
 class WalkExperiment(Experiment):
@@ -81,16 +110,11 @@ if __name__ == "__main__":
     experiment = WalkExperiment()
     experiment.dump()
     experiment.compile()
-    #experiment.run_single_simulation(1000, SimulatorPlatforms.PYTHON, 100, False)
     conf = MachineConfiguration()
     conf.dump()
-    experiment_configuration = ExperimentConfiguration(
-        experiment, conf, seed=1748065639484
-    )
+    experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
     experiment_configuration.dump()
-    sequential_calibration = SequentialCalibration(
-        experiment_configuration, dry_run=False
-    )
+    sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=False)
     sequential_calibration.dump()
     parallel_calibration = ParallelCalibration(sequential_calibration)
     parallel_calibration.dump()
@@ -98,60 +122,41 @@ if __name__ == "__main__":
     simulation.dump()
     popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
     popsize.dump()
-    # circular_graph = CircularGraph(WalkExperiment.BINS_LEN)
-    # position = PositionCalculation(simulation, graph=circular_graph, dimensionality=10, max_power=WalkExperiment.T)
-    # position.dump()
+    graph = LinearGraph(WalkExperiment.BINS_LEN)
+    graph.dump()
+    position = PositionCalculation(simulation, graph=graph, dimensionality=1, max_power=WalkExperiment.T, spatial_dims=("x",))    
+    position.dump()
 
-    # Add to position.results a new coordinate to dimension "position_data" with values position
-    # It must be nan if [position_data=nonzero_count] is greater than 2, otherwise it must be weighted average of
-    # [position_data=index0, position_data=index1] with weights [position_data=value0, position_data=value1]
-    # Also if [position_data=nonzero_count] is exactly 2,  get nan if abs([position_data=index0] - [position_data=index1]) != 1
-    # def weighted_average_two_positions(row):
-    #   nonzero = np.flatnonzero(row.values)
-    #   if len(nonzero) != 2:
-    #     return np.nan
-    #   idx0, idx1 = nonzero
-    #   val0, val1 = row.values[idx0], row.values[idx1]
-    #   if abs(idx0 - idx1) != 1:
-    #     return np.nan
-    #   return (idx0 * val0 + idx1 * val1) / (val0 + val1)
-    
-    # weighted_avg = position.results.reduce(
-    #   weighted_average_two_positions, dim="position_index"
-    # )
+    last_level = int(simulation.results.level.values[-1])
 
-    # position.results = position.results.assign_coords(
-    #   position_data=("position_data", ["weighted_average"])
-    # )
-    # position.results = position.results.expand_dims("position_data")
-    # position.results.loc[{"position_data": "weighted_average"}] = weighted_avg
-    # argmax = ArgMaxCalculation(simulation, ["x"])
-    # argmax.dump()
-    print(popsize.results) 
-    viz = Vizualization(
-        popsize,
-        x="target",
-        y="checkpoint",        
-        axis="level",       
-        filter={"platform": "PYTHON"},
-        #comparison={"platform": "CFFI"},
-        allow_aggregation=False,        
-    )
-    viz.dump() 
-    # with open(".s3_credentials.json") as f:
-    #   credentials = json.load(f)
-    # storage = YandexCloudStorage(credentials['access_key'], credentials['secret_key'], credentials['bucket_name'])
-    # storage.upload()
+    Vizualization(
+        results_object=simulation,
+        x="checkpoint",
+        y="target",
+        axis="x",
+        filter={"level": last_level, "platform": "CFFI"},
+        y_axis_label="Count",
+    ).dump()
 
+    Vizualization(
+        results_object=position,
+        x="platform",
+        y="target",
+        axis="checkpoint",
+        filter={"level": last_level, "position_data": "index0"},
+        reference=lambda data: (
+            data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
+            - WalkExperiment.BINS_TUPLE[0]
+        ),
+        y_axis_label="Position (bin index)",
+    ).dump()
 
-# Allow to switch down aggregation in vizualization (raise an error)
-# Add/test reference lines
-# Calculate ton-5 most frequent positions, make csc calculation for them
-# Make "trim" calculation where we detect the number of positions > 1e-9 for a whole dataset (we must get two)
-# Calculate "theorethical" positions and fit the number of steps based on theoretical positions
-# Estimate the number of probes and if it correspond to the real one (i.e. they are independent)
-
-# Negative probability
-# Consider we have a function with negative values and we need to "normalize" it. Then we represent it as a difference 
-# of two functions, one for particles, other for antiparticles. And instead of one series event we generate two. Then
-# we "annihilate" particles and antiparticles with some probability.
+    Vizualization(
+        results_object=popsize,
+        x="platform",
+        y="target",
+        axis="level",
+        filter={"checkpoint": 500, },
+        reference=lambda data: np.ones(len(data.coords["level"].values)),
+        y_axis_label="1/φ",
+    ).dump()
