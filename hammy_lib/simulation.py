@@ -5,6 +5,29 @@ from .parallel_calibration import ParallelCalibration
 
 
 class Simulation(ArrayHammyObject):
+    """Runs the experiment at exponentially increasing time levels and accumulates results.
+
+    Each simulation level runs for 2^(level-1) minutes (level 0 = 1 min,
+    level 1 = 1 min, level 2 = 2 min, level 3 = 4 min, level 4 = 8 min).
+    The number of loops per platform is derived from calibration:
+    loops = calibrated_loops_per_minute * minutes.
+
+    Simulation(level=N) recursively resolves levels 0..N-1 first, then runs
+    level N and concatenates all results along the "level" dimension. Each
+    level's result has a "platform" dimension (PYTHON, CFFI, and optionally
+    CUDA), so the final xarray has shape [..., level, platform].
+
+    The dependency chain:
+        Simulation → ParallelCalibration → SequentialCalibration
+            → ExperimentConfiguration → (Experiment, MachineConfiguration)
+
+    ExperimentConfiguration.run_parallel_simulations() handles the actual
+    parallel execution: CUDA launches async in the main process, then a
+    multiprocessing Pool runs PYTHON (1 thread) + CFFI (remaining threads)
+    simultaneously. Results from all platforms are summed per-platform and
+    concatenated into a single xr.DataArray.
+    """
+
     _not_checked_fields = ['simulation_level', 'previous_level_simulation']
 
     def __init__(

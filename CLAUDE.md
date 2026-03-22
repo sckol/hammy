@@ -57,26 +57,44 @@ The C code uses a compatibility layer (`c_libs/cuda_cpu/cuda_cpu.h`) that maps C
 - `constants` — C preprocessor `#define` and variable declarations (experiment-specific sizing)
 - `function_header` — CFFI signature (default: `void run_simulation(unsigned long long loops, const unsigned long long seed, unsigned long long* out)`)
 
-`str(c_code)` produces the full compilable source: constants → `common.h` → platform-specific headers (pcg_basic + cuda_cpu for CFFI, CUDA headers for GPU) → experiment code.
+Two compilation paths:
+- `str(c_code)` — CFFI source: constants → `common.h` (BLOCKS=1) → pcg_basic + cuda_cpu headers → experiment code
+- `c_code.to_cuda_source(blocks)` — CUDA source for `cp.RawKernel`: constants → USE_CUDA + BLOCKS define → `common.h` (curand_kernel.h) → CUDA-native macros → experiment code
 
-### CPU/GPU compatibility macros (`c_libs/cuda_cpu/cuda_cpu.h`)
+### How the dual CPU/GPU compilation works
 
-The macro layer emulates CUDA's threading model on CPU by simulating a single 32-thread warp as a sequential loop:
+CUDA's programming model uses **warps** — groups of 32 threads executing in lockstep on a GPU. Each warp runs inside a **block**, and a kernel launches a **grid** of many blocks. Threads within a warp share memory and synchronize at barriers (`__syncthreads()`).
 
-| CUDA concept | CPU macro/expansion | Purpose |
+The trick: `cuda_cpu.h` emulates one warp as a sequential `for` loop over 32 iterations on CPU. The experiment C code is written once using macros that expand differently per platform:
+
+| Concept | CUDA (real GPU) | CPU emulation (`cuda_cpu.h`) |
 |---|---|---|
-| `__shared__`, `__global__`, `__device__`, `__EXTERN` | empty (no-op) | Storage/linkage qualifiers |
-| `_32` | `[32]` | Declares arrays of 32 (one per virtual thread) |
-| `_` | `[threadIdx.x]` | Indexes per-thread arrays by current virtual thread |
-| `__WARP_INIT` | `for(threadIdx.x = 0..31) {` | Starts a warp-simulation loop over 32 virtual threads |
-| `__SYNCTHREADS` | `} __WARP_INIT` | Ends one warp pass, starts another (barrier emulation) |
-| `__WARP_END` | `}` | Ends the warp loop |
-| `TID` | `threadIdx.x + blockIdx.x * blockDim.x` | Global thread ID (CPU: just threadIdx.x since BLOCKS=1) |
-| `TID_LOCAL` | `threadIdx.x` | Thread-local ID within block |
-| `atomicAdd(addr, val)` | `*addr += val` | Safe on CPU (sequential within warp loop) |
-| `ZERO(arr, type, aligned)` | Parallel zero-fill macro | Zeroes array using warp-parallel pattern |
+| `__shared__ int x` | Per-block shared memory | Regular local variable |
+| `__device__ int x` | Global GPU memory | Regular global variable |
+| `int val _32` | `int val` (per-thread register) | `int val[32]` (array, one slot per virtual thread) |
+| `val _` | `val` (thread's own value) | `val[threadIdx.x]` (indexed by loop counter) |
+| `__WARP_INIT` | no-op (real hardware warp) | `for(threadIdx.x = 0; threadIdx.x < 32; threadIdx.x++) {` |
+| `__SYNCTHREADS` | `__syncthreads();` (barrier) | `} for(threadIdx.x = 0; ...) {` (restart loop) |
+| `__WARP_END` | no-op | `}` (close loop) |
+| `curand_init` / `curand` | CUDA curand library | PCG32 (`pcg_basic.h`) |
+| `atomicAdd(addr, val)` | Hardware atomic operation | `*addr += val` (safe — sequential in loop) |
+| `BLOCKS` | Grid size (many, e.g. 1000) | Always 1 |
 
-**RNG mapping**: `curandStateXORWOW_t` → `pcg32_random_t` (PCG32 from `c_libs/pcg_basic/`). Initialized via `curand_init(seed, sequence, offset, &state)` which maps to `pcg32_srandom_r(state, offset, (seed_low32 << 32) | seq_low32)`. The sequence parameter (typically `TID`) selects an independent PCG stream.
+**On CPU:** one block, 32 virtual threads executed sequentially in a loop. `_32` creates arrays of 32 elements, `_` indexes them by the loop counter. Barriers (`__SYNCTHREADS`) end the loop and restart it, ensuring all 32 "threads" complete before the next phase.
+
+**On GPU:** many blocks, each with 32 real threads (one warp). `_32` and `_` expand to nothing — each thread has its own registers. `__SYNCTHREADS` becomes a real barrier. `BLOCKS` controls how many blocks run in parallel.
+
+### Memory: `__device__` vs `__shared__`
+
+The `counts` array in walk.c uses `__device__` (global GPU memory), indexed by `blockIdx.x` so each block writes to its own slice. Block 0 reduces all slices at the end.
+
+Why not `__shared__` (per-block, faster)? Shared memory is limited to 48-96 KB per SM. The per-block counts array for the walk experiment is `32 * TARGETS_LEN * CHECKPOINTS_LEN * BINS_LEN * 8 bytes` = **1.26 MB** — far exceeds the limit. `__device__` memory is the only option, with BLOCKS sized to fit GPU RAM (BLOCKS=1000 uses ~1.3 GB).
+
+### RNG mapping
+
+`curandStateXORWOW_t` → `pcg32_random_t` (PCG32 from `c_libs/pcg_basic/`). Initialized via `curand_init(seed, sequence, offset, &state)` which maps to `pcg32_srandom_r(state, offset, (seed_low32 << 32) | seq_low32)`. The sequence parameter (typically `TID`) selects an independent PCG stream.
+
+On GPU, the real curand library provides `curandStateXORWOW_t` natively via `<curand_kernel.h>`.
 
 ### Seed and RNG architecture
 
