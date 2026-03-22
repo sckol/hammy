@@ -10,6 +10,33 @@ from .hammy_object import DictHammyObject
 
 
 class Experiment(DictHammyObject):
+    """Defines a Monte Carlo simulation: its parameters, result shape, and kernels.
+
+    An Experiment provides three equivalent implementations of the same simulation:
+    - simulate_using_python() — NumPy reference (subclass implements)
+    - cffi_simulator() — C kernel compiled to .so, called via CFFI
+    - cuda_simulator() — same C kernel compiled for GPU via CuPy RawKernel
+
+    The C code is written once (as a CCode dataclass) and compiled differently
+    per platform. See common.h for how the same source works on CPU and GPU.
+
+    Experiment does NOT run simulations by itself — it only knows how to execute
+    a single batch of `loops` iterations on a given platform. The orchestration
+    (how many loops, which platforms, parallelism) is handled by
+    ExperimentConfiguration, which calls run_single_simulation().
+
+    Subclasses must define:
+    - experiment_number, experiment_name, experiment_version — identity
+    - c_code — CCode with the C kernel source and constants
+    - create_empty_results() — xarray with the right shape/coords for output
+    - simulate_using_python() — reference implementation mutating out in-place
+
+    Lifecycle:
+    1. compile() — builds CFFI .so (once, before any CFFI simulation)
+    2. run_single_simulation(seed, platform, loops) — dispatches to the right
+       simulator, returns xr.DataArray (or elapsed time in calibration mode)
+    """
+
     experiment_number: int
     experiment_name: str
     experiment_version: int
@@ -79,6 +106,39 @@ class Experiment(DictHammyObject):
         ffi.dlclose(lib)
         return out
 
+    _cuda_kernels: dict = {}
+
+    def _get_cuda_kernel(self, blocks: int):
+        if blocks not in self._cuda_kernels:
+            import cupy as cp
+            source = self.c_code.to_cuda_source(blocks)
+            self._cuda_kernels[blocks] = cp.RawKernel(source, 'run_simulation')
+        return self._cuda_kernels[blocks]
+
+    def cuda_simulator(self, loops: int, out: xr.DataArray, seed: int, blocks: int = 1000) -> None:
+        """Launch CUDA kernel and copy results back synchronously."""
+        gpu_out = self.cuda_simulator_launch(loops, out, seed, blocks)
+        self.cuda_simulator_sync(gpu_out, out)
+
+    def cuda_simulator_launch(self, loops: int, out: xr.DataArray, seed: int, blocks: int = 1000):
+        """Launch CUDA kernel (async — returns immediately while GPU computes).
+
+        Returns the GPU output buffer. Call cuda_simulator_sync() to wait and
+        copy results back to the xarray.
+        """
+        import cupy as cp
+        kernel = self._get_cuda_kernel(blocks)
+        gpu_out = cp.zeros(out.values.shape, dtype=cp.int64)
+        kernel((blocks,), (32,), (loops, seed, gpu_out))
+        return gpu_out
+
+    @staticmethod
+    def cuda_simulator_sync(gpu_out, out: xr.DataArray) -> None:
+        """Wait for GPU kernel to finish and copy results to CPU."""
+        import cupy as cp
+        cp.cuda.get_current_stream().synchronize()
+        out.values[:] = gpu_out.get()
+
     def run_single_simulation(
         self,
         seed: int,
@@ -95,7 +155,7 @@ class Experiment(DictHammyObject):
             case SimulatorPlatforms.CFFI:
                 self.cffi_simulator(loops, out, seed)
             case SimulatorPlatforms.CUDA:
-                raise ValueError(f"CUDA platform not implemented yet")
+                self.cuda_simulator(loops, out, seed)
             case _:
                 raise ValueError(f"Unknown platform: {platform}")
         elapsed_time = time() - start_time

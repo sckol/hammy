@@ -90,6 +90,22 @@ class ExperimentConfiguration(DictHammyObject):
     def run_parallel_simulations(
         self, loops_by_platform: CalibrationResults, calibration_mode=False
     ) -> xr.DataArray | CalibrationResults:
+        # CUDA runs in main process (not in Pool — CUDA contexts are not fork-safe).
+        # Launch CUDA first (async — returns immediately), then run CPU Pool
+        # while GPU computes, then sync GPU before collecting results.
+        cpu_threads = self.threads - (1 if self.use_cuda else 0)
+        cuda_result = None
+        gpu_out = None
+        cuda_out = None
+        if self.use_cuda:
+            cuda_out = self.experiment.create_empty_results()
+            cuda_start = time()
+            gpu_out = self.experiment.cuda_simulator_launch(
+                loops_by_platform[SimulatorPlatforms.CUDA],
+                cuda_out,
+                self.seed + cpu_threads,
+            )
+        # CPU work via Pool (runs while GPU is still computing)
         res = self.pool.map(
             partial(
                 self.run_simulation_thread,
@@ -98,8 +114,12 @@ class ExperimentConfiguration(DictHammyObject):
                 loops_by_platform=loops_by_platform,
                 calibration_mode=calibration_mode,
             ),
-            list(range(self.threads)),
+            list(range(cpu_threads)),
         )
+        if self.use_cuda:
+            self.experiment.cuda_simulator_sync(gpu_out, cuda_out)
+            cuda_elapsed = time() - cuda_start
+            cuda_result = cuda_elapsed if calibration_mode else cuda_out
         self.seed += self.threads
         if calibration_mode:
 
@@ -111,27 +131,31 @@ class ExperimentConfiguration(DictHammyObject):
                     res[0], SimulatorPlatforms.PYTHON
                 )
             }
-            cffi_times = res[1:-1] if self.use_cuda else res[1:]
-            min_cffi = min(cffi_times)
-            max_cffi = max(cffi_times)
-            if max_cffi > min_cffi * 1.25:
-                raise ValueError("CFFI times vary too much between threads")
-            results[SimulatorPlatforms.CFFI] = time_to_loops(
-                sum(cffi_times) / len(cffi_times), SimulatorPlatforms.CFFI
-            )
+            cffi_times = res[1:]
+            if cffi_times:
+                min_cffi = min(cffi_times)
+                max_cffi = max(cffi_times)
+                if max_cffi > min_cffi * 1.25:
+                    raise ValueError("CFFI times vary too much between threads")
+                results[SimulatorPlatforms.CFFI] = time_to_loops(
+                    sum(cffi_times) / len(cffi_times), SimulatorPlatforms.CFFI
+                )
             if self.use_cuda:
                 results[SimulatorPlatforms.CUDA] = time_to_loops(
-                    res[-1], SimulatorPlatforms.CUDA
+                    cuda_result, SimulatorPlatforms.CUDA
                 )
             return results
         python_result = res[0]
-        cffi_results = res[1:-1] if self.use_cuda else res[1:]
-        cuda_result = res[-1] if self.use_cuda else None
+        cffi_results = res[1:]
         cffi_combined = sum(cffi_results[1:], cffi_results[0]) if cffi_results else None
-        platform_results = [python_result, cffi_combined]
+        platform_results = [python_result]
+        if cffi_combined is not None:
+            platform_results.append(cffi_combined)
         if self.use_cuda:
             platform_results.append(cuda_result)
-        platforms = [SimulatorPlatforms.PYTHON, SimulatorPlatforms.CFFI] + (
+        platforms = [SimulatorPlatforms.PYTHON] + (
+            [SimulatorPlatforms.CFFI] if cffi_results else []
+        ) + (
             [SimulatorPlatforms.CUDA] if self.use_cuda else []
         )
         return xr.concat(

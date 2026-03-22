@@ -40,6 +40,24 @@ class CCode:
                 res.append(f.read())
         return "\n".join(res)
 
+    def to_cuda_source(self, blocks: int) -> str:
+        """Generate CUDA-compilable source for cp.RawKernel.
+
+        Prepends USE_CUDA and BLOCKS defines so common.h takes the CUDA path
+        (curand_kernel.h, CUDA-native macros). All platform-specific macros
+        live in common.h — this method only sets BLOCKS and USE_CUDA.
+        """
+        cuda_defines = "\n".join([
+            f"#define BLOCKS {blocks}",
+            "#define USE_CUDA",
+        ])
+        return "\n".join([
+            self.constants,
+            cuda_defines,
+            self.read_common_header(),
+            self.code,
+        ])
+
     def __str__(self):
         return f"{self.generate_include()}\n{self.code}"
-        
+

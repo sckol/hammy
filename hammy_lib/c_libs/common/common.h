@@ -1,6 +1,18 @@
 #ifdef USE_CUDA
-#include <curand.h>
+/* CUDA path: real GPU warps, curand, no CPU emulation */
+#include <curand_kernel.h>
+/* EXPORT: marks function as visible in shared library for CFFI/dlopen.
+   Not needed on CUDA (kernels are called via CUDA runtime). */
+#define EXPORT
+/* CUDA-native macros: real per-thread storage, real warps, real barriers */
+#define __EXTERN extern "C"
+#define _32
+#define _
+#define __WARP_INIT
+#define __SYNCTHREADS __syncthreads();
+#define __WARP_END
 #else
+/* CPU path: emulate one 32-thread warp as a sequential for-loop */
 #define BLOCKS 1
 #ifdef _WIN32
 #define EXPORT __declspec(dllexport)
