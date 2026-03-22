@@ -8,9 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Run
 
-### Python package (hammy_lib)
+### Python environment
 ```bash
-pip install -e .                    # Install in editable mode (uses hatchling)
+# Venv is at repo root
+python3 -m venv .venv
+.venv/bin/pip install -e .
 ```
 
 ### C experiments (CMake)
@@ -35,6 +37,8 @@ cd experiments/01_walk && python walk.py
 ./create_hammy_machine.sh <version> <minutes>   # Creates Yandex Cloud GPU VM with Docker
 ```
 
+Docker files are in `docker/`: `hammy-base.Dockerfile` (base deps), `hammy.Dockerfile` (experiment runner), `hammy_entrypoint.sh` (entrypoint), `hammy_machine.compose` (Compose config).
+
 ## Architecture
 
 ### Dual-language simulation kernel
@@ -45,6 +49,15 @@ Each experiment has **three equivalent implementations** of the same simulation:
 3. **CUDA** — same C code compiled for GPU (not yet fully implemented)
 
 The C code uses a compatibility layer (`c_libs/cuda_cpu/cuda_cpu.h`) that maps CUDA constructs to CPU equivalents, allowing a single `.c` source to compile for both CPU and GPU.
+
+### CCode dataclass (`hammy_lib/ccode.py`)
+
+`CCode(code, constants, function_header?)` is a frozen dataclass that bundles a C kernel:
+- `code` — C source string (the experiment's `.c` file content)
+- `constants` — C preprocessor `#define` and variable declarations (experiment-specific sizing)
+- `function_header` — CFFI signature (default: `void run_simulation(unsigned long long loops, const unsigned long long seed, unsigned long long* out)`)
+
+`str(c_code)` produces the full compilable source: constants → `common.h` → platform-specific headers (pcg_basic + cuda_cpu for CFFI, CUDA headers for GPU) → experiment code.
 
 ### CPU/GPU compatibility macros (`c_libs/cuda_cpu/cuda_cpu.h`)
 
@@ -86,6 +99,13 @@ Two concrete base classes:
 - `DictHammyObject` — stores metadata as JSON (for configs, calibrations)
 - `ArrayHammyObject` — stores xarray DataArrays as NetCDF with h5netcdf engine (for simulation results, calculations)
 
+**`HammyObject.RESULTS_DIR`** (class variable, default `Path("results")`) controls where files are stored. Override at the top of an experiment script to redirect to a shared results directory:
+```python
+HammyObject.RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+```
+
+**`_not_checked_fields`** (class variable, list of strings) lists field names excluded from metadata conflict checks in `fill_metadata()`. Use this in subclasses for fields that legitimately differ between objects sharing the same cache (e.g., `simulation_level`, `previous_level_simulation`).
+
 ### Experiment execution pipeline
 
 The pipeline objects form a dependency chain, each resolving its dependencies recursively:
@@ -107,7 +127,25 @@ Experiment → ExperimentConfiguration → SequentialCalibration → ParallelCal
 
 `Calculation` iterates over all coordinate combinations of `independent_dimensions` (always includes `level` and `platform`), calls `calculate_unit()` for each slice, then combines results via `xr.combine_by_coords`. The `extend_simulation_results()` method adds cumulative sums across levels and a `TOTAL` platform.
 
+`FlexDimensionCalculation(main_input, dimensions)` is a variant where `independent_dimensions` is automatically derived as all dimensions except the ones listed in `dimensions`.
+
 Concrete calculations: `ArgMaxCalculation`, `PositionCalculation` (uses NNLS + eigendecomposition on graph), `PopulationSizeCalculation` (G-test overdispersion estimate).
+
+### Graph types (`hammy_lib/graph.py`)
+
+`Graph` is an `ArrayHammyObject` wrapping a transition matrix with precomputed eigenvalues/eigenvectors. Concrete subclasses:
+- `LinearGraph(length)` — 1D chain with reflective endpoints (boundary nodes always move inward)
+- `CircularGraph(length)` — ring topology with equal left/right transition probabilities
+
+### Visualization (`hammy_lib/vizualization.py`)
+
+`Vizualization(results_object, x, y, axis, filter, groupby, comparison, reference, y_axis_label)` produces a grid of line plots (one subplot per `(x_val, y_val)` pair), saved as PNG with JSON metadata embedded in the `hammy` PNG chunk. Key parameters:
+- `x`, `y` — dimensions defining the subplot grid columns/rows
+- `axis` — dimension plotted on the x-axis within each subplot
+- `filter` — `{dim: value}` selections applied before plotting
+- `groupby` — additional dimension to split into separate lines within each subplot
+- `comparison` — additional filter for an overlay line (rendered in gray)
+- `reference` — callable `(DataArray) -> array` producing a black reference line
 
 ### Error handling philosophy
 
