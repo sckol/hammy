@@ -5,7 +5,7 @@ from .parallel_calibration import ParallelCalibration
 
 
 class Simulation(ArrayHammyObject):
-    _not_checked_fields = ['simulation_level']
+    _not_checked_fields = ['simulation_level', 'previous_level_simulation']
 
     def __init__(
         self,
@@ -16,7 +16,7 @@ class Simulation(ArrayHammyObject):
         super().__init__(id=id)
         self.parallel_calibration = parallel_calibration
         self.simulation_level = simulation_level
-        self.previous_level_simulation: "Simulation" | None = None
+        self._previous_level_simulation: "Simulation" | None = None
 
     @property
     def experiment_configuration(self):
@@ -28,10 +28,10 @@ class Simulation(ArrayHammyObject):
 
     def calculate(self) -> None:
         if self.simulation_level > 0:
-            self.previous_level_simulation = Simulation(
+            self._previous_level_simulation = Simulation(
                 self.parallel_calibration, simulation_level=self.simulation_level - 1
             )
-            self.previous_level_simulation.resolve()
+            self._previous_level_simulation.resolve()
         minutes = 2 ** (self.simulation_level - 1) if self.simulation_level > 0 else 1
         print(f"Running level {self.simulation_level} simulation for {minutes} minutes...")
         loops_by_platform = {
@@ -42,11 +42,11 @@ class Simulation(ArrayHammyObject):
             loops_by_platform, calibration_mode=False
         )
         if (
-            self.previous_level_simulation
-            and self.previous_level_simulation._results is not None
+            self._previous_level_simulation
+            and self._previous_level_simulation._results is not None
         ):
             self._results = xr.concat(
-                [self.previous_level_simulation._results, current_results],
+                [self._previous_level_simulation._results, current_results],
                 dim="level",
             )
         else:

@@ -200,24 +200,28 @@ class ArrayHammyObject(HammyObject):
         return self._results
 
     def dump_to_filename(self, filename: str) -> None:
-        self._results.name = "results"
         self._results.attrs.update(
             {k: v for k, v in self.metadata.items() if v is not None}
         )
-        encoding = {
-            "zlib": True,
-            "complevel": 5,
-            "dtype": "float32"
-            if self._results.dtype == "float64"
-            else self._results.dtype,
-        }
-        self._results.to_netcdf(
-            filename, engine="h5netcdf", encoding={"results": encoding}
-        )
+        if isinstance(self._results, xr.Dataset):
+            encoding = {var: {"zlib": True, "complevel": 5} for var in self._results.data_vars}
+            self._results.to_netcdf(filename, engine="h5netcdf", encoding=encoding)
+        else:
+            self._results.name = "results"
+            encoding = {
+                "zlib": True,
+                "complevel": 5,
+                "dtype": "float32" if self._results.dtype == "float64" else self._results.dtype,
+            }
+            self._results.to_netcdf(filename, engine="h5netcdf", encoding={"results": encoding})
 
     def load_from_filename(self, filename: str) -> None:
-        with xr.open_dataarray(filename, engine="h5netcdf") as f:
-            self._results = f.load()
+        if isinstance(self._results, xr.Dataset):
+            with xr.open_dataset(filename, engine="h5netcdf") as f:
+                self._results = f.load()
+        else:
+            with xr.open_dataarray(filename, engine="h5netcdf") as f:
+                self._results = f.load()
         self.metadata = OrderedDict(self._results.attrs)
 
     @property

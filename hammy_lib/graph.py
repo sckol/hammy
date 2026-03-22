@@ -16,10 +16,12 @@ class Graph(ArrayHammyObject):
         )
 
     def calculate(self) -> None:
+        import scipy.linalg as la
         tm = self._results["transition_matrix"].values
         eigvals, eigvecs = np.linalg.eig(tm)
         self._results["eigenvalues"] = (["eigen_index"], eigvals)
         self._results["eigenvectors"] = (["position_index", "eigen_index"], eigvecs)
+        self._results["eigenvectors_inv"] = (["eigen_index", "position_index"], la.inv(eigvecs))
 
     def generate_id(self) -> str:
         return f"graph_{hash(self._results['transition_matrix'].values.tobytes())}"
