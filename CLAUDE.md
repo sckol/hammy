@@ -147,13 +147,25 @@ Experiment → ExperimentConfiguration → SequentialCalibration → ParallelCal
 
 `FlexDimensionCalculation(main_input, dimensions)` is a variant where `independent_dimensions` is automatically derived as all dimensions except the ones listed in `dimensions`.
 
-Concrete calculations: `ArgMaxCalculation`, `PositionCalculation` (uses NNLS + eigendecomposition on graph), `PopulationSizeCalculation` (G-test overdispersion estimate).
+Concrete calculations: `PositionCalculation` (see below), `PopulationSizeCalculation` (G-test overdispersion estimate).
 
 ### Graph types (`hammy_lib/graph.py`)
 
-`Graph` is an `ArrayHammyObject` wrapping a transition matrix with precomputed eigenvalues/eigenvectors. Concrete subclasses:
-- `LinearGraph(length)` — 1D chain with reflective endpoints (boundary nodes always move inward)
-- `CircularGraph(length)` — ring topology with equal left/right transition probabilities
+`Graph` is an `ArrayHammyObject` wrapping a transition matrix with precomputed eigenvalues/eigenvectors. Subclass `Graph` and build the transition matrix in `__init__`.
+
+`LinearGraph(length)` — 1D lazy walk chain: P(stay)=0.5, P(±1)=0.25, boundary self-loop=0.75. Matches the effective bin dynamics of walk.c (which stores `raw_position // 2`).
+
+### PositionCalculation (`hammy_lib/calculations/position.py`)
+
+Decomposes observed distribution as a sparse NNLS mixture of walk columns `T^p[:,i]`:
+1. Normalize distribution to probability vector
+2. Binary search for walk power `p`: find the smallest `p` where NNLS gives `≤ MAX_COMPONENTS` components (the minimum diffusion time to explain the distribution with few sources)
+3. Compute `T^p` via spectral decomposition, solve NNLS
+4. Threshold at 1% of peak weight, normalize
+
+Output: top `MAX_COMPONENTS=2` by weight (index + value pairs), plus `power` and `nonzero_count`. The binary search guarantees `nonzero_count ≤ MAX_COMPONENTS`. The algorithm is topology-agnostic — it uses only the transition matrix, no node coordinates.
+
+**Scope**: validated on 1D lattice (linear graph). Higher-dimensional graphs expected to need larger `MAX_COMPONENTS` (≤2×dimensionality) but untested.
 
 ### Visualization (`hammy_lib/vizualization.py`)
 
