@@ -11,6 +11,13 @@ from .hammy_object import DictHammyObject
 class MachineConfiguration(DictHammyObject):
     _no_check_metadata = True
 
+    def resolve(self, no_load=False, no_check: bool = False) -> None:
+        if self.resolved:
+            return
+        self.calculate()
+        self.fill_metadata(no_check=no_check)
+        self.resolved = True
+
     def calculate(self) -> None:
         # Detect CPU and memory info
         self.metadata["cpu_model"] = platform.processor()
