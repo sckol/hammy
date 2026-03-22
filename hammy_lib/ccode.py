@@ -48,6 +48,7 @@ class CCode:
         live in common.h — this method only sets BLOCKS and USE_CUDA.
         """
         cuda_defines = "\n".join([
+            "#define FROM_PYTHON",
             f"#define BLOCKS {blocks}",
             "#define USE_CUDA",
         ])
