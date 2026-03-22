@@ -1,6 +1,40 @@
 #ifdef USE_CUDA
-/* CUDA path: real GPU warps, curand, no CPU emulation */
-#include <curand_kernel.h>
+/* CUDA path: real GPU warps, PCG32 RNG (same as CPU — no curand dependency),
+   no CPU emulation. Avoids #include <curand_kernel.h> which requires nvcc. */
+
+/* PCG32 RNG — inline implementation for GPU (matches pcg_basic on CPU) */
+struct __align__(8) pcg_state_setseq_64 {
+    unsigned long long state;
+    unsigned long long inc;
+};
+typedef struct pcg_state_setseq_64 pcg32_random_t;
+typedef pcg32_random_t curandStateXORWOW_t;
+
+__device__ __forceinline__ void pcg32_srandom_r(pcg32_random_t* rng, unsigned long long initstate, unsigned long long initseq) {
+    rng->state = 0ULL;
+    rng->inc = (initseq << 1u) | 1u;
+    /* advance once */
+    rng->state = rng->state * 6364136223846793005ULL + rng->inc;
+    rng->state += initstate;
+    rng->state = rng->state * 6364136223846793005ULL + rng->inc;
+}
+
+__device__ __forceinline__ unsigned int pcg32_random_r(pcg32_random_t* rng) {
+    unsigned long long oldstate = rng->state;
+    rng->state = oldstate * 6364136223846793005ULL + rng->inc;
+    unsigned int xorshifted = (unsigned int)(((oldstate >> 18u) ^ oldstate) >> 27u);
+    unsigned int rot = (unsigned int)(oldstate >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+__device__ __forceinline__ void curand_init(unsigned long long seed, unsigned long long sequence, unsigned long long offset, curandStateXORWOW_t *state) {
+    pcg32_srandom_r(state, offset, (((unsigned long long)(seed & 0xFFFFFFFF) << 32) | (unsigned long long)(sequence & 0xFFFFFFFF)));
+}
+
+__device__ __forceinline__ unsigned int curand(curandStateXORWOW_t *state) {
+    return pcg32_random_r(state);
+}
+
 /* EXPORT: marks function as visible in shared library for CFFI/dlopen.
    Not needed on CUDA (kernels are called via CUDA runtime). */
 #define EXPORT
