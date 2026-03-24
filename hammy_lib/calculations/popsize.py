@@ -23,7 +23,7 @@ class PopulationSizeCalculation(Calculation):
         main_input,
         theoretical_dist_func: Callable,
         distribution_dim: str = "x",
-        id: str = None,
+        id: str | None = None,
     ):
         """
         Args:
@@ -37,8 +37,8 @@ class PopulationSizeCalculation(Calculation):
         self.distribution_dim = distribution_dim
 
     @property
-    def independent_dimensions(self):
-        return [d for d in self.main_input.results.dims if d != self.distribution_dim]
+    def independent_dimensions(self) -> list[str]:
+        return [str(d) for d in self.main_input.results.dims if d != self.distribution_dim]
 
     @property
     def simple_type_return(self):
@@ -74,8 +74,7 @@ class PopulationSizeCalculation(Calculation):
 
         if not np.all(np.isfinite(p_all)):
             raise ValueError(
-                f"Theoretical distribution contains non-finite values "
-                f"at target={target}, checkpoint={checkpoint}"
+                f"Theoretical distribution contains non-finite values at target={target}, checkpoint={checkpoint}"
             )
 
         # Only use bins where theoretical probability is positive
@@ -86,8 +85,7 @@ class PopulationSizeCalculation(Calculation):
         p_sum = float(np.sum(p))
         if p_sum <= 0:
             raise ValueError(
-                f"Theoretical distribution sums to zero "
-                f"at target={target}, checkpoint={checkpoint}"
+                f"Theoretical distribution sums to zero at target={target}, checkpoint={checkpoint}"
             )
         p = p / p_sum
 
@@ -108,9 +106,7 @@ class PopulationSizeCalculation(Calculation):
 
         if phi <= 0:
             raise ValueError(
-                f"G-test statistic is non-positive (G={G}, df={df}) "
-                f"at target={target}, checkpoint={checkpoint}. "
-                f"This should not happen with real simulation data."
+                f"G-test statistic is non-positive (G={G}, df={df}) at target={target}, checkpoint={checkpoint}. This should not happen with real simulation data."
             )
 
         return float(1.0 / phi)
@@ -177,8 +173,7 @@ def bridged_random_walk_distribution(
     prob_sum = np.sum(probs)
     if prob_sum <= 0:
         raise ValueError(
-            f"Bridge distribution sums to zero at target={target}, "
-            f"checkpoint={checkpoint}"
+            f"Bridge distribution sums to zero at target={target}, checkpoint={checkpoint}"
         )
     probs /= prob_sum
 

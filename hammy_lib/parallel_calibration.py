@@ -15,7 +15,7 @@ class ParallelCalibration(DictHammyObject):
         self,
         sequential_calibration: SequentialCalibration,
         calibration_tolerance=None,
-        id: str = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self.sequential_calibration = sequential_calibration

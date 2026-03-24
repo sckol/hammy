@@ -38,14 +38,14 @@ class PositionCalculation(Calculation):
         self.spatial_dims = tuple(spatial_dims)
 
     @property
-    def independent_dimensions(self):
-        return [d for d in self.main_input.results.dims if d not in self.spatial_dims]
+    def independent_dimensions(self) -> list[str]:
+        return [str(d) for d in self.main_input.results.dims if d not in self.spatial_dims]
 
     @property
     def simple_type_return(self):
         return False
 
-    def _find_power(self, eigvals, eigvecs_inv, x):
+    def _find_power(self, eigvals, eigvecs_inv, x) -> float:
         """Find p by matching spectral spread of f to mean spectral spread of T^p columns.
 
         Spectral spread = energy in non-stationary eigenmodes.

@@ -176,7 +176,7 @@ class HammyObject(ABC):
         pass
 
 
-class DictHammyObject(HammyObject):
+class DictHammyObject(HammyObject, ABC):
     def dump_to_filename(self, filename: str) -> None:
         with open(filename, "w") as f:
             json.dump(self.metadata, f, indent=2)
@@ -190,7 +190,7 @@ class DictHammyObject(HammyObject):
         return "json"
 
 
-class ArrayHammyObject(HammyObject):
+class ArrayHammyObject(HammyObject, ABC):
     def __init__(self, id=None):
         super().__init__(id)
         self._results: xr.DataArray | xr.Dataset | None = None

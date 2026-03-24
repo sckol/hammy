@@ -1,10 +1,11 @@
 import json
 import numpy as np
 import xarray as xr
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from PIL import Image
-from typing import Dict, Callable, Optional
+from typing import Callable
 from .hammy_object import HammyObject
 from .hammy_object import ArrayHammyObject
 from collections import OrderedDict
@@ -16,13 +17,13 @@ class Vizualization(HammyObject):
         results_object: ArrayHammyObject,
         x: str,
         axis: str,
-        y: Optional[str] = None,
-        filter: Dict = {},
-        groupby: Optional[str] = None,
-        comparison: Optional[Dict] = None,
-        reference: Optional[Callable] = None,
-        y_axis_label: Optional[str] = None,
-        id: str = None,
+        y: str | None = None,
+        filter: dict | None = None,
+        groupby: str | None = None,
+        comparison: dict | None = None,
+        reference: Callable | None = None,
+        y_axis_label: str | None = None,
+        id: str | None = None,
         allow_aggregation: bool = True,
     ):
         super().__init__(id=id)
@@ -30,7 +31,7 @@ class Vizualization(HammyObject):
         self.x = x
         self.axis = axis
         self.y = y
-        self.filter = filter
+        self.filter = filter if filter is not None else {}
         self.groupby = groupby
         self.comparison = comparison
         self.reference = reference
@@ -50,7 +51,7 @@ class Vizualization(HammyObject):
     def generate_id(self):
         return f"{self.results_object.id}_viz"
 
-    def _apply_filters(self, data: xr.DataArray, filters: Dict) -> xr.DataArray:
+    def _apply_filters(self, data: xr.DataArray, filters: dict) -> xr.DataArray:
         filtered = data.copy()
         for dim, values in filters.items():
             if dim in filtered.dims:
@@ -79,8 +80,8 @@ class Vizualization(HammyObject):
         self,
         data: xr.DataArray,
         axis: str,
-        groupby: Optional[str],
-        ax: plt.Axes,
+        groupby: str | None,
+        ax: matplotlib.axes.Axes,
         is_comparison: bool = False,
         show_legend: bool = False,
     ):
@@ -143,13 +144,13 @@ class Vizualization(HammyObject):
         self,
         data: xr.DataArray,
         reference_func: Callable,
-        filters: Dict,
+        filters: dict,
         x_val,
         y_val,
         x: str,
-        y: Optional[str],
+        y: str | None,
         axis: str,
-        ax: plt.Axes,
+        ax: matplotlib.axes.Axes,
         is_comparison: bool = False,
     ):
         filtered_data = self._apply_filters(data, filters)

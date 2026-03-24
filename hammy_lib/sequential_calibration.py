@@ -15,7 +15,7 @@ class SequentialCalibration(DictHammyObject):
     def __init__(
         self,
         experiment_configuration: ExperimentConfiguration,
-        id: str = None,
+        id: str | None = None,
         dry_run: bool = False,
     ) -> None:
         super().__init__(id=id)

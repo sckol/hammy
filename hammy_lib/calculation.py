@@ -2,13 +2,12 @@ import itertools
 import numpy as np
 import xarray as xr
 from tqdm import tqdm
-from typing import List
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from .hammy_object import ArrayHammyObject
 from .simulation import Simulation
 
 
-class Calculation(ArrayHammyObject):
+class Calculation(ArrayHammyObject, ABC):
     """Base class for post-processing computations on simulation results.
 
     A Calculation takes an ArrayHammyObject (typically a Simulation) and applies
@@ -37,14 +36,14 @@ class Calculation(ArrayHammyObject):
     def __init__(
         self,
         main_input: ArrayHammyObject,
-        id: str = None,
+        id: str | None = None,
     ):
         super().__init__(id=id)
         self.main_input = main_input
 
     @property
     @abstractmethod
-    def independent_dimensions(self) -> List[str]:
+    def independent_dimensions(self) -> list[str]:
         pass
 
     @property
@@ -75,7 +74,7 @@ class Calculation(ArrayHammyObject):
         return extended_results
 
     @abstractmethod
-    def calculate_unit(self, input: xr.DataArray, coords: dict) -> xr.DataArray | int | float | bool:
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict) -> xr.DataArray | int | float | bool:
         """Calculate a single unit given a selected DataArray slice and the
         current coordinates dictionary.
 
@@ -146,7 +145,7 @@ class Calculation(ArrayHammyObject):
             return class_name        
 
 
-class FlexDimensionCalculation(Calculation):
+class FlexDimensionCalculation(Calculation, ABC):
     """Calculation where independent_dimensions are derived automatically.
 
     Instead of listing what to iterate over, you list the "data dimensions" --
@@ -157,14 +156,14 @@ class FlexDimensionCalculation(Calculation):
     def __init__(
         self,
         main_input: ArrayHammyObject,
-        dimensions: List[str],
-        id: str = None,
+        dimensions: list[str],
+        id: str | None = None,
     ):
         super().__init__(main_input=main_input, id=id)
         self.dimensions = dimensions
 
     @property
-    def independent_dimensions(self) -> List[str]:
+    def independent_dimensions(self) -> list[str]:
         # Get all dimensions of the main input except the specified dimensions
         all_dims = set(self.main_input.results.dims) - set(self.dimensions)
-        return list(all_dims)
+        return [str(d) for d in all_dims]

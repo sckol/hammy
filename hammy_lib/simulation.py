@@ -34,12 +34,12 @@ class Simulation(ArrayHammyObject):
         self,
         parallel_calibration: ParallelCalibration,
         simulation_level: int,
-        id: str = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self.parallel_calibration = parallel_calibration
         self.simulation_level = simulation_level
-        self._previous_level_simulation: "Simulation" | None = None
+        self._previous_level_simulation: "Simulation | None" = None
 
     @property
     def experiment_configuration(self):
@@ -60,7 +60,7 @@ class Simulation(ArrayHammyObject):
             platform: int(self.parallel_calibration_results[platform] * minutes)
             for platform in self.parallel_calibration_results
         }
-        loops_str = ", ".join(f"{p.name}={l}" for p, l in loops_by_platform.items())
+        loops_str = ", ".join(f"{p.name}={loops}" for p, loops in loops_by_platform.items())
         print(f"Simulation level {self.simulation_level} ({minutes} min): {loops_str}")
         current_results = self.experiment_configuration.run_parallel_simulations(
             loops_by_platform, calibration_mode=False

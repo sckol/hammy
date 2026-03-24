@@ -5,7 +5,6 @@ from .experiment import Experiment
 from .simulator_platforms import SimulatorPlatforms
 from .calibration_results import CalibrationResults
 import xarray as xr
-from typing import Optional
 from functools import partial
 from time import time
 import psutil
@@ -16,16 +15,16 @@ class ExperimentConfiguration(DictHammyObject):
         self,
         experiment: Experiment,
         machine_configuration: MachineConfiguration,
-        seed: Optional[int] = None,
-        threads: Optional[int] = None,
-        id: Optional[str] = None,
+        seed: int | None = None,
+        threads: int | None = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self.experiment = experiment
         self.machine_configuration = machine_configuration
         self.seed = seed or int(time() * 1000)
         self.use_cuda = (machine_configuration.metadata.get("cuda_cores") or 0) > 0
-        self.cores = psutil.cpu_count(logical=False)
+        self.cores = psutil.cpu_count(logical=False) or 1
         if threads is None:
             # Ensure CFFI gets at least 1 thread even on single-core machines.
             # PYTHON=thread 0, CFFI=thread 1+, CUDA=main process (async).
@@ -100,6 +99,7 @@ class ExperimentConfiguration(DictHammyObject):
         cuda_result = None
         gpu_out = None
         cuda_out = None
+        cuda_start = 0.0
         mode = "calibration" if calibration_mode else "simulation"
         platforms_str = f"PYTHON + {cpu_threads - 1} CFFI" + (" + CUDA" if self.use_cuda else "")
         print(f"Running parallel {mode}: {platforms_str}")

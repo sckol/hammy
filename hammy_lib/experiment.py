@@ -1,15 +1,15 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
+from typing import assert_never
 from pathlib import Path
 import xarray as xr
 from cffi import FFI
 from time import time
 from .simulator_platforms import SimulatorPlatforms
 from .ccode import CCode
-from .calibration_results import CalibrationResults
 from .hammy_object import DictHammyObject
 
 
-class Experiment(DictHammyObject):
+class Experiment(DictHammyObject, ABC):
     """Defines a Monte Carlo simulation: its parameters, result shape, and kernels.
 
     An Experiment provides three equivalent implementations of the same simulation:
@@ -157,6 +157,6 @@ class Experiment(DictHammyObject):
             case SimulatorPlatforms.CUDA:
                 self.cuda_simulator(loops, out, seed)
             case _:
-                raise ValueError(f"Unknown platform: {platform}")
+                assert_never(platform)
         elapsed_time = time() - start_time
         return elapsed_time if calibration_mode else out
