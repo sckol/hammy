@@ -54,7 +54,7 @@ __EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const u
     for (int j = 0; j <= sizeof(**counts) / sizeof(*****counts) / 32; j++) {
       int idx = j * 32 + TID_LOCAL;
       if (j * 32 + TID_LOCAL < sizeof(**counts) / sizeof(*****counts)){
-        ((long long *) counts[blockIdx.x][0])[j * 32 + TID_LOCAL] += ((long long *) counts[blockIdx.x][i])[j * 32 + TID_LOCAL];
+        ((unsigned long long *) counts[blockIdx.x][0])[j * 32 + TID_LOCAL] += ((unsigned long long *) counts[blockIdx.x][i])[j * 32 + TID_LOCAL];
       }
     }
   }
@@ -63,7 +63,7 @@ __EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const u
     for (int b = 0; b < BLOCKS; ++b) {
       for (int i = 0; i <= sizeof(**counts) / sizeof(*****counts) / 32; ++i) {
         if (i * 32 + TID_LOCAL < sizeof(**counts) / sizeof(*****counts)) {
-          out[i * 32 + TID_LOCAL] += ((long long *) counts[b][0])[i * 32 + TID_LOCAL];
+          out[i * 32 + TID_LOCAL] += ((unsigned long long *) counts[b][0])[i * 32 + TID_LOCAL];
         }
       }
     }
@@ -72,10 +72,10 @@ __EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const u
 }
 
 #ifndef FROM_PYTHON
+#include <string.h>
 int main() {
   unsigned long long out[TARGETS_LEN][CHECKPOINTS_LEN][BINS_LEN];
   memset(out, 0, sizeof(out));
-  run_simulation(50000, 1111111111, (long long *) &out);
-  1+1;
+  run_simulation(50000, 1111111111, (unsigned long long *) &out);
 }
 #endif
