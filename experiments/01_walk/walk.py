@@ -228,7 +228,9 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     return simulation
 
 
-if __name__ == "__main__":
+# %% Run
+if __name__ == "__main__" and '__file__' in globals():
+    # CLI mode (python walk.py / python -m experiments.01_walk)
     parser = argparse.ArgumentParser(description="Walk experiment")
     parser.add_argument("--level", type=int, default=4, help="Simulation level (0-N)")
     parser.add_argument("--no-viz", action="store_true", help="Skip visualizations")
@@ -243,3 +245,6 @@ if __name__ == "__main__":
         no_viz=args.no_viz,
         no_upload=args.no_upload,
     )
+elif __name__ == "__main__":
+    # Notebook mode (Colab / Jupyter)
+    run()
