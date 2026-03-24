@@ -1,8 +1,5 @@
 # ! uv pip install git+https://github.com/sckol/hammy#egg=hammy_lib
-# %% CCODE
-CCODE = None
-
-# %% Setup
+# Setup
 import os
 import sys
 import argparse
@@ -31,7 +28,7 @@ def _try_enable_mkl():
 if __name__ == "__main__" and '__file__' in globals():
     _try_enable_mkl()
 
-# %% Imports
+# Imports
 import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,7 +52,7 @@ try:
 except NameError:
     HammyObject.RESULTS_DIR = Path("results")
 
-# %% Experiment definition
+# Experiment definition
 class WalkExperiment(Experiment):
     experiment_number = 1
     experiment_name = "walk"
@@ -80,7 +77,7 @@ class WalkExperiment(Experiment):
   #define BINS_LEN { BINS_LEN }
   """
 
-    if CCODE is not None:
+    if 'CCODE' in globals():
         c_code = CCode(CCODE, C_DEFINITIONS)
     else:
         try:
@@ -118,7 +115,7 @@ class WalkExperiment(Experiment):
                         data[data[:, -1] == target, c], bins=self.BINS
                     )[0]
 
-# %% Configuration
+# Configuration
 def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=False):
     experiment = WalkExperiment()
     experiment.dump()
@@ -130,7 +127,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
     experiment_configuration.dump()
 
-    # %% Calibration
+    # Calibration
     sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=dry_run)
     sequential_calibration.dump()
 
@@ -140,16 +137,16 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     )
     parallel_calibration.dump()
 
-    # %% Simulation
+    # Simulation
     simulation = Simulation(parallel_calibration, simulation_level=level)
     simulation.dump()
 
-    # %% Calculation: PopulationSize
+    # Calculation: PopulationSize
     if not no_calculations:
         popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
         popsize.dump()
 
-    # %% Calculation: Position
+    # Calculation: Position
     if not no_calculations:
         graph = LinearGraph(WalkExperiment.BINS_LEN)
         graph.dump()
@@ -157,7 +154,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
         position = PositionCalculation(simulation, graph=graph, dimensionality=2, spatial_dims=("x",))
         position.dump()
 
-    # %% Viz: Simulation histogram
+    # Viz: Simulation histogram
     if not no_calculations and not no_viz:
         last_level = int(simulation.results.level.values[-1])
 
@@ -170,7 +167,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             y_axis_label="Count",
         ).dump()
 
-    # %% Viz: Position
+    # Viz: Position
     if not no_calculations and not no_viz:
         Vizualization(
             results_object=position,
@@ -185,7 +182,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             y_axis_label="Position (bin index)",
         ).dump()
 
-    # %% Viz: Population size
+    # Viz: Population size
     if not no_calculations and not no_viz:
         Vizualization(
             results_object=popsize,
@@ -197,7 +194,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             y_axis_label="1/φ",
         ).dump()
 
-    # %% Viz: NNLS component count
+    # Viz: NNLS component count
     if not no_calculations and not no_viz:
         Vizualization(
             results_object=position,
@@ -209,7 +206,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             y_axis_label="NNLS component count",
         ).dump()
 
-    # %% S3 Upload
+    # S3 Upload
     if not no_upload:
         try:
             from google.colab import userdata
@@ -228,7 +225,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     return simulation
 
 
-# %% Run
+# Run
 if __name__ == "__main__" and '__file__' in globals():
     # CLI mode (python walk.py / python -m experiments.01_walk)
     parser = argparse.ArgumentParser(description="Walk experiment")
@@ -236,7 +233,7 @@ if __name__ == "__main__" and '__file__' in globals():
     parser.add_argument("--no-viz", action="store_true", help="Skip visualizations")
     parser.add_argument("--no-upload", action="store_true", help="Skip S3 upload")
     parser.add_argument("--no-calculations", action="store_true", help="Skip calculations and viz")
-    parser.add_argument("--dry-run", action="store_true", help="Fast calibration (10%% loops)")
+    parser.add_argument("--dry-run", action="store_true", help="Fast calibration (10loops)")
     args = parser.parse_args()
     run(
         level=args.level,
