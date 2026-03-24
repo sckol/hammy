@@ -1,12 +1,28 @@
 # ! uv pip install git+https://github.com/sckol/hammy#egg=hammy_lib
-# Setup
 import os
 import sys
 import argparse
+import glob
+import ctypes.util
+import xarray as xr
+import numpy as np
+from pathlib import Path
+from hammy_lib.hammy_object import HammyObject
+from hammy_lib.machine_configuration import MachineConfiguration
+from hammy_lib.experiment import Experiment
+from hammy_lib.ccode import CCode
+from hammy_lib.experiment_configuration import ExperimentConfiguration
+from hammy_lib.sequential_calibration import SequentialCalibration
+from hammy_lib.parallel_calibration import ParallelCalibration
+from hammy_lib.simulation import Simulation
+from hammy_lib.calculations.popsize import PopulationSizeCalculation, bridged_random_walk_distribution
+from hammy_lib.graph import LinearGraph
+from hammy_lib.calculations.position import PositionCalculation
+from hammy_lib.vizualization import Vizualization
+
 
 def _try_enable_mkl():
     """Find libmkl_rt and restart the process with LD_PRELOAD if not already active."""
-    import glob, ctypes.util
     if "libmkl_rt" in os.environ.get("LD_PRELOAD", ""):
         return
     candidates = set()
@@ -27,25 +43,6 @@ def _try_enable_mkl():
 
 if __name__ == "__main__" and '__file__' in globals():
     _try_enable_mkl()
-
-# Imports
-import xarray as xr
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
-from hammy_lib.hammy_object import HammyObject
-from hammy_lib.machine_configuration import MachineConfiguration
-from hammy_lib.experiment import Experiment
-from hammy_lib.ccode import CCode
-from hammy_lib.experiment_configuration import ExperimentConfiguration
-from hammy_lib.sequential_calibration import SequentialCalibration
-from hammy_lib.parallel_calibration import ParallelCalibration
-from hammy_lib.simulation import Simulation
-from hammy_lib.simulator_platforms import SimulatorPlatforms
-from hammy_lib.calculations.popsize import PopulationSizeCalculation, bridged_random_walk_distribution
-from hammy_lib.graph import LinearGraph
-from hammy_lib.calculations.position import PositionCalculation
-from hammy_lib.vizualization import Vizualization
 
 try:
     HammyObject.RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
@@ -78,7 +75,7 @@ class WalkExperiment(Experiment):
   """
 
     if 'CCODE' in globals():
-        c_code = CCode(CCODE, C_DEFINITIONS)
+        c_code = CCode(CCODE, C_DEFINITIONS)  # noqa: F821  # pyright: ignore[reportUndefinedVariable]
     else:
         try:
             _walk_c_dir = Path(__file__).parent
@@ -170,11 +167,11 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     # Viz: Position
     if not no_calculations and not no_viz:
         Vizualization(
-            results_object=position,
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
             axis="checkpoint",
-            filter={"level": last_level, "position_data": "index0"},
+            filter={"level": last_level, "position_data": "index0"},  # pyright: ignore[reportPossiblyUnboundVariable]
             reference=lambda data: (
                 data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
                 - WalkExperiment.BINS_TUPLE[0]
@@ -185,7 +182,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     # Viz: Population size
     if not no_calculations and not no_viz:
         Vizualization(
-            results_object=popsize,
+            results_object=popsize,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
             axis="level",
@@ -197,7 +194,7 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     # Viz: NNLS component count
     if not no_calculations and not no_viz:
         Vizualization(
-            results_object=position,
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
             axis="level",
@@ -216,11 +213,10 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             access_key = os.environ.get('S3_ACCESS_KEY')
             secret_key = os.environ.get('S3_SECRET_KEY')
 
-        if access_key and secret_key:
-            from hammy_lib.yandex_cloud_storage import YandexCloudStorage
-            storage = YandexCloudStorage(access_key, secret_key, "hammy")
-            HammyObject.STORAGE = storage
-            storage.upload()
+        from hammy_lib.yandex_cloud_storage import YandexCloudStorage
+        storage = YandexCloudStorage(access_key, secret_key, "hammy")
+        HammyObject.STORAGE = storage
+        storage.upload()
 
     return simulation
 
