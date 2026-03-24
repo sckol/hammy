@@ -25,8 +25,11 @@ class ExperimentConfiguration(DictHammyObject):
         self.machine_configuration = machine_configuration
         self.seed = seed or int(time() * 1000)
         self.use_cuda = (machine_configuration.metadata.get("cuda_cores") or 0) > 0
+        self.cores = psutil.cpu_count(logical=False)
         if threads is None:
-            threads = psutil.cpu_count(logical=False) + int(self.use_cuda)
+            # Ensure CFFI gets at least 1 thread even on single-core machines.
+            # PYTHON=thread 0, CFFI=thread 1+, CUDA=main process (async).
+            threads = max(3, self.cores + 1) if self.use_cuda else max(2, self.cores)
         self.threads = threads
         self._pool = Pool(threads)
 

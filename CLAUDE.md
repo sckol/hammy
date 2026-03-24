@@ -27,15 +27,29 @@ python -c "from experiments.01_walk.walk import WalkExperiment; WalkExperiment()
 # Output goes to build_cffi/
 ```
 
-### Running an experiment
-```bash
-cd experiments/01_walk && python walk.py
-```
+### Execution modes
 
-### Cloud execution
-```bash
-./create_hammy_machine.sh <version> <minutes>   # Creates Yandex Cloud GPU VM with Docker
-```
+Experiments support 6 execution modes:
+
+| Mode | Command | Notes |
+|---|---|---|
+| **Local file** | `cd experiments/01_walk && python walk.py` | Full pipeline, results in project root |
+| **Local module** | `python -m experiments.01_walk --level 2 --no-viz` | Selective steps via CLI flags |
+| **Yandex Cloud** | `./create_hammy_machine.sh <version> <minutes>` | Docker container, same CLI flags |
+| **Google Colab** | Open walk.py as notebook | Set `CCODE` variable for C source, one cell per viz |
+| **Debug C** | `cmake -B build && cmake --build build && ./build/walk` | Standalone C executable via walk.h |
+| **Debug CUDA** | Compile .cu on GPU server | Uses `to_cuda_source()` output |
+
+**CLI flags** (modes 2-3):
+- `--level N` — simulation level (default 4)
+- `--no-viz` — skip visualizations
+- `--no-upload` — skip S3 upload
+- `--no-calculations` — skip calculations and viz (just simulate)
+- `--dry-run` — fast calibration (10% loops, relaxed tolerance)
+
+**Colab specifics**: set `CCODE = "..."` in the CCODE cell to provide C source inline (otherwise reads from walk.c file). Each visualization has its own cell for inline display. S3 credentials via Colab Secrets (`access_key`, `secret_key`).
+
+**Single-core machines** (e.g. Colab): `ExperimentConfiguration` auto-detects cores and ensures CFFI gets at least 1 thread. PYTHON and CFFI time-share the CPU core while CUDA runs async on GPU. Use `calibration_tolerance=100` for `ParallelCalibration` (exposed via `experiment_configuration.cores`).
 
 Docker files are in `docker/`: `hammy-base.Dockerfile` (base deps), `hammy.Dockerfile` (experiment runner), `hammy_entrypoint.sh` (entrypoint), `hammy_machine.compose` (Compose config).
 

@@ -1,18 +1,24 @@
+# ! uv pip install git+https://github.com/sckol/hammy#egg=hammy_lib
+# %% CCODE
+CCODE = None
+
+# %% Setup
+import os
+import sys
+import argparse
+
 def _try_enable_mkl():
     """Find libmkl_rt and restart the process with LD_PRELOAD if not already active."""
-    import os, sys, glob, ctypes.util
+    import glob, ctypes.util
     if "libmkl_rt" in os.environ.get("LD_PRELOAD", ""):
         return
     candidates = set()
-    # {venv or conda prefix}/lib/
     for prefix in {sys.prefix, os.path.join(os.path.dirname(sys.executable), "..")}:
         candidates.update(glob.glob(os.path.join(prefix, "lib", "libmkl_rt*")))
-    # one level above any site-packages / dist-packages on sys.path
     for sp in sys.path:
         if "site-packages" in sp or "dist-packages" in sp:
             candidates.update(glob.glob(os.path.join(os.path.dirname(sp), "libmkl_rt*")))
             candidates.update(glob.glob(os.path.join(sp, "*", "libmkl_rt*")))
-    # system search via ld.so / LD_LIBRARY_PATH
     found = ctypes.util.find_library("mkl_rt")
     if found and os.path.isabs(found):
         candidates.add(found)
@@ -22,19 +28,16 @@ def _try_enable_mkl():
             os.environ["LD_PRELOAD"] = path
             os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
 
-_try_enable_mkl()
+if __name__ == "__main__" and '__file__' in globals():
+    _try_enable_mkl()
 
+# %% Imports
 import xarray as xr
 import numpy as np
-import json
 import matplotlib.pyplot as plt
 from pathlib import Path
 from hammy_lib.hammy_object import HammyObject
 from hammy_lib.machine_configuration import MachineConfiguration
-
-# Use the shared results dir at hammy root (contains cached simulation data).
-# Remove this line to use the local results/ dir (experiments/01_walk/results/).
-HammyObject.RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
 from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
 from hammy_lib.experiment_configuration import ExperimentConfiguration
@@ -47,7 +50,12 @@ from hammy_lib.graph import LinearGraph
 from hammy_lib.calculations.position import PositionCalculation
 from hammy_lib.vizualization import Vizualization
 
+try:
+    HammyObject.RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+except NameError:
+    HammyObject.RESULTS_DIR = Path("results")
 
+# %% Experiment definition
 class WalkExperiment(Experiment):
     experiment_number = 1
     experiment_name = "walk"
@@ -72,7 +80,14 @@ class WalkExperiment(Experiment):
   #define BINS_LEN { BINS_LEN }
   """
 
-    c_code = CCode((Path(__file__).parent / "walk.c").read_text(), C_DEFINITIONS)
+    if CCODE is not None:
+        c_code = CCode(CCODE, C_DEFINITIONS)
+    else:
+        try:
+            _walk_c_dir = Path(__file__).parent
+        except NameError:
+            _walk_c_dir = Path("experiments/01_walk")
+        c_code = CCode((_walk_c_dir / "walk.c").read_text(), C_DEFINITIONS)
 
     def create_empty_results(self) -> xr.DataArray:
         dims = ["target", "checkpoint", "x"]
@@ -90,12 +105,10 @@ class WalkExperiment(Experiment):
     def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
         rng = np.random.default_rng(seed)
         for _ in range(loops):
-            data = None            
+            data = None
             diffs = np.diff(self.CHECKPOINTS, prepend=0).tolist()
-            #steps = rng.binomial(np.tile(diffs, (self.NUMPY_WIDTH, 1)), 0.75)
-            #data = rng.binomial(steps, 0.5) - steps / 2
-            steps = np.tile(diffs, (self.NUMPY_WIDTH, 1))          # deterministic number of micro-steps
-            data = rng.binomial(steps, 0.5) - (steps / 2)          # (R - L)/2, matches your C scaling
+            steps = np.tile(diffs, (self.NUMPY_WIDTH, 1))
+            data = rng.binomial(steps, 0.5) - (steps / 2)
             data = np.cumsum(data, axis=-1)
             for target_idx, target in enumerate(self.TARGETS):
                 if target != 0:
@@ -105,68 +118,128 @@ class WalkExperiment(Experiment):
                         data[data[:, -1] == target, c], bins=self.BINS
                     )[0]
 
-
-if __name__ == "__main__":
+# %% Configuration
+def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=False):
     experiment = WalkExperiment()
     experiment.dump()
     experiment.compile()
+
     conf = MachineConfiguration()
     conf.dump()
+
     experiment_configuration = ExperimentConfiguration(experiment, conf, seed=1748065639484)
     experiment_configuration.dump()
-    sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=False)
+
+    # %% Calibration
+    sequential_calibration = SequentialCalibration(experiment_configuration, dry_run=dry_run)
     sequential_calibration.dump()
-    parallel_calibration = ParallelCalibration(sequential_calibration)
+
+    calibration_tolerance = 100 if experiment_configuration.cores == 1 else 25
+    parallel_calibration = ParallelCalibration(
+        sequential_calibration, calibration_tolerance=calibration_tolerance
+    )
     parallel_calibration.dump()
-    simulation = Simulation(parallel_calibration, simulation_level=4)
+
+    # %% Simulation
+    simulation = Simulation(parallel_calibration, simulation_level=level)
     simulation.dump()
-    popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
-    popsize.dump()
-    graph = LinearGraph(WalkExperiment.BINS_LEN)
-    graph.dump()
-    position = PositionCalculation(simulation, graph=graph, dimensionality=2, spatial_dims=("x",))
-    position.dump()
 
-    last_level = int(simulation.results.level.values[-1])
+    # %% Calculation: PopulationSize
+    if not no_calculations:
+        popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
+        popsize.dump()
 
-    Vizualization(
-        results_object=simulation,
-        x="checkpoint",
-        y="target",
-        axis="x",
-        filter={"level": last_level, "platform": "CFFI"},
-        y_axis_label="Count",
-    ).dump()
+    # %% Calculation: Position
+    if not no_calculations:
+        graph = LinearGraph(WalkExperiment.BINS_LEN)
+        graph.dump()
 
-    Vizualization(
-        results_object=position,
-        x="platform",
-        y="target",
-        axis="checkpoint",
-        filter={"level": last_level, "position_data": "index0"},
-        reference=lambda data: (
-            data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
-            - WalkExperiment.BINS_TUPLE[0]
-        ),
-        y_axis_label="Position (bin index)",
-    ).dump()
+        position = PositionCalculation(simulation, graph=graph, dimensionality=2, spatial_dims=("x",))
+        position.dump()
 
-    Vizualization(
-        results_object=popsize,
-        x="platform",
-        y="target",
-        axis="level",
-        filter={"checkpoint": 500, },
-        reference=lambda data: np.ones(len(data.coords["level"].values)),
-        y_axis_label="1/φ",
-    ).dump()
+    # %% Viz: Simulation histogram
+    if not no_calculations and not no_viz:
+        last_level = int(simulation.results.level.values[-1])
 
-    Vizualization(
-        results_object=position,
-        x="platform",
-        y="target",
-        axis="level",
-        filter={"checkpoint": 500, "position_data": "nonzero_count"},
-        reference=lambda data: np.full(len(data.coords["level"].values), 2.0),
-        y_axis_label="NNLS component count",
-    ).dump()
+        Vizualization(
+            results_object=simulation,
+            x="checkpoint",
+            y="target",
+            axis="x",
+            filter={"level": last_level, "platform": "CFFI"},
+            y_axis_label="Count",
+        ).dump()
+
+    # %% Viz: Position
+    if not no_calculations and not no_viz:
+        Vizualization(
+            results_object=position,
+            x="platform",
+            y="target",
+            axis="checkpoint",
+            filter={"level": last_level, "position_data": "index0"},
+            reference=lambda data: (
+                data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
+                - WalkExperiment.BINS_TUPLE[0]
+            ),
+            y_axis_label="Position (bin index)",
+        ).dump()
+
+    # %% Viz: Population size
+    if not no_calculations and not no_viz:
+        Vizualization(
+            results_object=popsize,
+            x="platform",
+            y="target",
+            axis="level",
+            filter={"checkpoint": 500, },
+            reference=lambda data: np.ones(len(data.coords["level"].values)),
+            y_axis_label="1/φ",
+        ).dump()
+
+    # %% Viz: NNLS component count
+    if not no_calculations and not no_viz:
+        Vizualization(
+            results_object=position,
+            x="platform",
+            y="target",
+            axis="level",
+            filter={"checkpoint": 500, "position_data": "nonzero_count"},
+            reference=lambda data: np.full(len(data.coords["level"].values), 2.0),
+            y_axis_label="NNLS component count",
+        ).dump()
+
+    # %% S3 Upload
+    if not no_upload:
+        try:
+            from google.colab import userdata
+            access_key = userdata.get('access_key')
+            secret_key = userdata.get('secret_key')
+        except ImportError:
+            access_key = os.environ.get('S3_ACCESS_KEY')
+            secret_key = os.environ.get('S3_SECRET_KEY')
+
+        if access_key and secret_key:
+            from hammy_lib.yandex_cloud_storage import YandexCloudStorage
+            storage = YandexCloudStorage(access_key, secret_key, "hammy")
+            HammyObject.STORAGE = storage
+            storage.upload()
+
+    return simulation
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Walk experiment")
+    parser.add_argument("--level", type=int, default=4, help="Simulation level (0-N)")
+    parser.add_argument("--no-viz", action="store_true", help="Skip visualizations")
+    parser.add_argument("--no-upload", action="store_true", help="Skip S3 upload")
+    parser.add_argument("--no-calculations", action="store_true", help="Skip calculations and viz")
+    parser.add_argument("--dry-run", action="store_true", help="Fast calibration (10%% loops)")
+    args = parser.parse_args()
+    run(
+        level=args.level,
+        dry_run=args.dry_run,
+        no_calculations=args.no_calculations,
+        no_viz=args.no_viz,
+        no_upload=args.no_upload,
+    )
