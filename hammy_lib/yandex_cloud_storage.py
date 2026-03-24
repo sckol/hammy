@@ -17,16 +17,22 @@ class YandexCloudStorage:
         self.bucket_name = bucket_name
 
     def _get_hammy_objects_in_globals(self):
-        # Walk up to the outermost (top) frame, but return to the original frame after
+        # Collect HammyObject instances from locals and globals of all frames
+        seen_ids = set()
+        result = []
         frame = inspect.currentframe()
         try:
-            top = frame
-            while top.f_back is not None:
-                top = top.f_back
-            global_vars = top.f_globals
+            f = frame
+            while f is not None:
+                for ns in (f.f_locals, f.f_globals):
+                    for obj in ns.values():
+                        if isinstance(obj, HammyObject) and id(obj) not in seen_ids:
+                            seen_ids.add(id(obj))
+                            result.append(obj)
+                f = f.f_back
         finally:
             del frame
-        return [obj for obj in global_vars.values() if isinstance(obj, HammyObject)]
+        return result
 
     def _get_s3_key_from_object(self, obj):
         local_path = obj.filename
