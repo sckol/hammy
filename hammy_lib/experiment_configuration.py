@@ -100,9 +100,13 @@ class ExperimentConfiguration(DictHammyObject):
         cuda_result = None
         gpu_out = None
         cuda_out = None
+        mode = "calibration" if calibration_mode else "simulation"
+        platforms_str = f"PYTHON + {cpu_threads - 1} CFFI" + (" + CUDA" if self.use_cuda else "")
+        print(f"Running parallel {mode}: {platforms_str}")
         if self.use_cuda:
             cuda_out = self.experiment.create_empty_results()
             cuda_start = time()
+            print(f"[CUDA] Launching {loops_by_platform[SimulatorPlatforms.CUDA]} loops (async)...")
             gpu_out = self.experiment.cuda_simulator_launch(
                 loops_by_platform[SimulatorPlatforms.CUDA],
                 cuda_out,
@@ -122,6 +126,7 @@ class ExperimentConfiguration(DictHammyObject):
         if self.use_cuda:
             self.experiment.cuda_simulator_sync(gpu_out, cuda_out)
             cuda_elapsed = time() - cuda_start
+            print(f"[CUDA] Done in {cuda_elapsed:.2f}s")
             cuda_result = cuda_elapsed if calibration_mode else cuda_out
         self.seed += self.threads
         if calibration_mode:

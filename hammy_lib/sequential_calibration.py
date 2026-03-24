@@ -26,26 +26,22 @@ class SequentialCalibration(DictHammyObject):
         dry_run_multiplier = 0.1 if self.dry_run else 1.0
         loops = int(1000 * dry_run_multiplier)
         while True:
-            print(f"Running calibration with {loops} loops...")
+            print(f"[{platform.name}] Calibrating with {loops} loops...")
             elapsed_time = self.experiment_configuration.run_single_simulation(
                 platform, loops, calibration_mode=True
             )
-            print(f"Simulation took {elapsed_time:.2f} seconds")
+            print(f"[{platform.name}] Took {elapsed_time:.2f}s")
             if elapsed_time > 15 * dry_run_multiplier:
-                # Calculate loops needed for 1 minute
                 one_min_loops = int(loops * 60 * dry_run_multiplier / elapsed_time)
-                print(f"Estimated {one_min_loops} loops needed for 1 minute")
-                # Run with calculated loops
-                print(f"Running verification with {one_min_loops} loops...")
+                print(f"[{platform.name}] Verifying with {one_min_loops} loops...")
                 elapsed_time = self.experiment_configuration.run_single_simulation(
                     platform, one_min_loops, calibration_mode=True
                 )
-                print(f"Verification took {elapsed_time:.2f} seconds")
-                # Final adjustment
+                print(f"[{platform.name}] Verification took {elapsed_time:.2f}s")
                 final_loops = int(
                     one_min_loops * 60 * dry_run_multiplier / elapsed_time
                 )
-                print(f"Final calibration: {final_loops} loops per minute")
+                print(f"[{platform.name}] Calibrated: {final_loops} loops/min")
                 return final_loops
             loops *= 2
 

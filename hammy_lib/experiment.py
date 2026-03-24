@@ -146,7 +146,7 @@ class Experiment(DictHammyObject):
         loops: int,
         calibration_mode=False,
     ) -> xr.DataArray | float:
-        print(f"Running simulation with seed {seed}...")
+        print(f"Running {platform.name} simulation ({loops} loops, seed {seed})...")
         out = self.create_empty_results()
         start_time = time()
         match platform:
