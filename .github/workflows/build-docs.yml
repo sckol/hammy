@@ -23,7 +23,7 @@ jobs:
           -v "/tmp/hammy-docs:/root/vault" \
           -v "/tmp/hammy-docs-html:/root/vault_html" \
           -e SITE_NAME="hammy — Random Walk Experiments" \
-          adventum/obsidian-exporter:0.3.0
+          sckol/obsidian-exporter:0.3.0
 
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
