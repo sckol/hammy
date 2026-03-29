@@ -9,10 +9,6 @@ on:
 
 jobs:
   build-docs:
-    container:
-      volumes:
-        - "/tmp/hammy-docs:/tmp/hammy-docs"
-        - "/tmp/hammy-docs-html:/tmp/hammy-docs-html"
     runs-on: ubuntu-latest
 
     steps:
@@ -21,12 +17,11 @@ jobs:
 
     - name: Convert Obsidian Vault to HTML
       run: |
-        rm -rf /tmp/hammy-docs/* /tmp/hammy-docs-html/*
-        cp -r $(pwd)/hammy_docs/{.,}* /tmp/hammy-docs/ 2>/dev/null || cp -r $(pwd)/hammy_docs/* /tmp/hammy-docs/
+        mkdir -p /tmp/hammy-docs /tmp/hammy-docs-html
+        cp -r hammy_docs/. /tmp/hammy-docs/
         docker run --rm \
           -v "/tmp/hammy-docs:/root/vault" \
           -v "/tmp/hammy-docs-html:/root/vault_html" \
-          -p 5900:5900 \
           -e SITE_NAME="hammy — Random Walk Experiments" \
           adventum/obsidian-exporter:0.3.0
 
