@@ -27,50 +27,35 @@ class BrickLatticeExperiment(Experiment):
     BINS_FLAT_LEN = _BINS[4]
     NUMPY_WIDTH = C.NUMPY_WIDTH
 
+    # Brick uses the same walk as square (4-dir ±x,±y) but with BrickGraph2D
+    # for position detection — tests offset cell geometry vs square cells
     try:
-        _c_dir = Path(__file__).parent
+        _c_dir = Path(__file__).parent.parent / "02_lattice"
     except NameError:
-        _c_dir = Path("experiments/03_lattice_types")
-    c_code = CCode((_c_dir / "brick.c").read_text(), C.make_c_definitions("brick"))
+        _c_dir = Path("experiments/02_lattice")
+    c_code = CCode((_c_dir / "lattice.c").read_text(), C.make_c_definitions("brick"))
 
     def create_empty_results(self) -> xr.DataArray:
         return C.create_empty_results("brick")
 
     def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
+        # Same walk as square — brick only differs in graph model
         rng = np.random.default_rng(seed)
         x_min, y_min = self.X_BINS_TUPLE[0], self.Y_BINS_TUPLE[0]
         x_max, y_max = self.X_BINS_TUPLE[1] - 1, self.Y_BINS_TUPLE[1] - 1
         out_vals = out.values
         for _ in range(loops):
             n = self.NUMPY_WIDTH
-            dirs = rng.integers(0, 4, size=(n, self.T))  # 0=right,1=left,2=up,3=down
-
-            pos_x = np.zeros(n, dtype=np.int64)
-            pos_y = np.zeros(n, dtype=np.int64)
-            ci_set = set(c - 1 for c in self.CHECKPOINTS)
-            cp_x = np.zeros((n, self.CHECKPOINTS_LEN), dtype=np.int64)
-            cp_y = np.zeros((n, self.CHECKPOINTS_LEN), dtype=np.int64)
-            cp_idx = 0
-
-            for k in range(self.T):
-                d = dirs[:, k]
-                parity = pos_x & 1  # 0=even, 1=odd
-                # Right/left: pure y movement
-                dy = np.where(d == 0, 1, np.where(d == 1, -1, 0))
-                # Up: x-=1, odd rows also shift y+=1
-                dx_up = np.where(d == 2, -1, 0)
-                dy_up = np.where((d == 2) & (parity == 1), 1, 0)
-                # Down: x+=1, odd rows also shift y+=1
-                dx_dn = np.where(d == 3, 1, 0)
-                dy_dn = np.where((d == 3) & (parity == 1), 1, 0)
-                pos_x += dx_up + dx_dn
-                pos_y += dy + dy_up + dy_dn
-                if k in ci_set:
-                    raw_x, raw_y = pos_x.copy(), pos_y.copy()
-                    cp_x[:, cp_idx] = np.where(raw_x >= 0, raw_x // 2, -((-raw_x) // 2))
-                    cp_y[:, cp_idx] = np.where(raw_y >= 0, raw_y // 2, -((-raw_y) // 2))
-                    cp_idx += 1
-
+            dim_choices = rng.integers(0, 2, size=(n, self.T))
+            dir_choices = rng.integers(0, 2, size=(n, self.T)) * 2 - 1
+            dx = np.where(dim_choices == 0, dir_choices, 0)
+            dy = np.where(dim_choices == 1, dir_choices, 0)
+            cum_x = np.cumsum(dx, axis=1)
+            cum_y = np.cumsum(dy, axis=1)
+            ci = [c - 1 for c in self.CHECKPOINTS]
+            raw_x, raw_y = cum_x[:, ci], cum_y[:, ci]
+            cp_x = np.where(raw_x >= 0, raw_x // 2, -((-raw_x) // 2))
+            cp_y = np.where(raw_y >= 0, raw_y // 2, -((-raw_y) // 2))
             for ti in range(self.TARGETS_LEN):
                 mask = (cp_x[:, -1] == self.TARGETS_X[ti]) & (cp_y[:, -1] == self.TARGETS_Y[ti])
                 if not mask.any():

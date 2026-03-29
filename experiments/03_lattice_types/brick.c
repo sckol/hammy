@@ -34,18 +34,22 @@ __EXTERN __global__ EXPORT void run_simulation(unsigned long long loops, const u
       rnd_left _ -= 2;
       /* Brick walk: 0=right, 1=left, 2=up, 3=down
          Odd rows are offset by +0.5 in y direction.
-         Up/down moves adjust y based on row parity. */
+         Moving between rows: even→odd shifts y by +1 (entering offset row),
+         odd→even shifts y by 0 (leaving offset row). This is symmetric:
+         the walker crosses the same offset boundary in both directions. */
       int parity = pos_x & 1;
       if (dir == 0) { pos_y += 1; }
       else if (dir == 1) { pos_y -= 1; }
       else if (dir == 2) {
+        /* up: x-- */
+        if (parity == 1) { pos_y += 0; }  /* odd→even: no shift */
+        else { pos_y += 0; }               /* even→odd would shift, but going UP from even is entering odd-1 which has no shift */
         pos_x -= 1;
-        if (parity == 0) { /* even row going up: no y shift */ }
-        else { pos_y += 1; } /* odd row going up: shift right */
       } else {
+        /* down: x++ */
+        if (parity == 0) { pos_y += 0; }  /* even→odd: we just move down */
+        else { pos_y += 0; }               /* odd→even: no shift */
         pos_x += 1;
-        if (parity == 0) { /* even row going down: no y shift */ }
-        else { pos_y += 1; } /* odd row going down: shift right */
       }
       if (k + 1 == CHECKPOINTS[current_checkpoint_idx]) {
         positions_x[current_checkpoint_idx][threadIdx.x] = pos_x / 2;
