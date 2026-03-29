@@ -23,3 +23,4 @@ Consider a graph where we perform a random walk of fixed length from node $S$ to
 ## Ideas
 
 Theoretical notes and hypotheses in [[ideas/index|Ideas]].
+
