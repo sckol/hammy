@@ -9,6 +9,10 @@ on:
 
 jobs:
   build-docs:
+    container:
+      volumes:
+        - "/tmp/hammy-docs:/tmp/hammy-docs"
+        - "/tmp/hammy-docs-html:/tmp/hammy-docs-html"
     runs-on: ubuntu-latest
 
     steps:
@@ -17,14 +21,18 @@ jobs:
 
     - name: Convert Obsidian Vault to HTML
       run: |
+        rm -rf /tmp/hammy-docs/* /tmp/hammy-docs-html/*
+        cp -r $(pwd)/hammy_docs/{.,}* /tmp/hammy-docs/ 2>/dev/null || cp -r $(pwd)/hammy_docs/* /tmp/hammy-docs/
         docker run --rm \
-          -v "$(pwd)/hammy_docs:/root/vault" \
-          -v "$(pwd)/hammy_docs_html:/root/vault_html" \
-          adventum/obsidian-exporter:0.1.1
+          -v "/tmp/hammy-docs:/root/vault" \
+          -v "/tmp/hammy-docs-html:/root/vault_html" \
+          -p 5900:5900 \
+          -e SITE_NAME="hammy — Random Walk Experiments" \
+          adventum/obsidian-exporter:0.3.0
 
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./hammy_docs_html
+        publish_dir: /tmp/hammy-docs-html
         publish_branch: gh-pages
