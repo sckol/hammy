@@ -2,7 +2,10 @@ services:
   hammy:
     privileged: true
     image: sckol/hammy:XXX
-    command: "YYY" 
+    command: "YYY"
+    environment:
+      - S3_ACCESS_KEY=AAA
+      - S3_SECRET_KEY=SSS
     deploy:
       resources:
         reservations:

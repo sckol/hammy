@@ -4,71 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-The docker setup implements a **self-destructing GPU VM** pattern on Yandex Cloud: a preemptible VM is created, runs the experiment inside a container, then deletes itself and powers off when done.
+The docker setup implements a **self-destructing GPU VM** pattern on Yandex Cloud: a preemptible VM is created, runs the experiment inside a container, then deletes itself and powers off when done. On failure, the VM stays alive for 5 minutes for SSH debugging, then self-destructs.
 
-## Two-layer image hierarchy
+## Image (`hammy.Dockerfile`)
 
-- **`hammy-base` (`hammy-base.Dockerfile`)** — base image built on `cupy/cupy:v13.1.0` (CUDA + Python). Installs `yc` CLI, Yandex Unified Agent (monitoring), and copies the helper scripts. `countdown.sh` is installed as `/root/main.sh` (placeholder — overridden in the experiment image).
-- **`hammy` (`hammy.Dockerfile`)** — experiment image built on top of base. Installs Python deps, downloads pcg-c-basic from pcg-random.org, copies the experiment script and encrypted S3 credentials. Replaces `main.sh` with `hammy.sh`.
+Single-layer image built on `cupy/cupy:v13.1.0` (CUDA + Python). Installs:
+- `yc` CLI (for self-destruct only)
+- PCG random C library (simulation kernel dependency)
+- Python deps via offline wheels (avoids PyPI connectivity issues in Docker build)
+- `hammy_lib/` and `experiments/` copied from repo
 
-## VM lifecycle (`hammy_entrypoint.sh`)
+## VM lifecycle (`entrypoint.sh`)
 
-1. Starts Yandex Unified Agent (background, for metrics streaming)
-2. Configures `yc` to use the VM's instance service account (no credentials needed)
-3. Retrieves the instance ID via the GCP-compatible metadata endpoint (`169.254.169.254`) — Yandex Cloud exposes this same endpoint
-4. Runs `main.sh` wrapped with `log_yc` (see below)
-5. **Self-destructs**: deletes the VM (`yc compute instance delete --async`) and triggers kernel shutdown via sysrq (`echo o > /proc/sysrq-trigger`)
+1. Configures `yc` for instance metadata auth
+2. Gets instance ID from metadata endpoint (`169.254.169.254`)
+3. Runs `python3 -m experiments.01_walk "$@"` with `tee` to `/root/experiment.log`
+4. On success (exit 0): self-destructs immediately
+5. On failure (exit != 0): waits 5 minutes (SSH debugging window), then self-destructs
 
-**To prevent self-destruction** (e.g. for debugging), set environment variables:
-- `ND=1` — skip VM deletion
-- `NS=1` — skip kernel shutdown (sysrq poweroff)
+S3 credentials are passed as container environment variables (`S3_ACCESS_KEY`, `S3_SECRET_KEY`), injected by `create_hammy_machine.sh` from `~/secrets.env`.
 
-## Experiment entry point (`hammy.sh`)
+## Compose templates
 
-Runs inside the container as `main.sh`. Steps:
-1. Decrypts S3 credentials from KMS-encrypted `.cipher` files:
-   ```
-   yc kms symmetric-crypto decrypt --name hammy --ciphertext-file s3_access_key_id.cipher
-   ```
-   The ciphertext files are checked into the repo; decryption requires the VM's service account to have KMS decrypt permission on the `hammy` key.
-2. Patches `.s3cfg` in-place (`sed -i`) with the decrypted key ID and secret key.
-3. Runs the Python experiment via `run_nice` (see below).
+Two templates with placeholders (`XXX`=version, `YYY`=args, `AAA`/`SSS`=S3 keys):
 
-## Helper scripts
-
-**`run_nice.sh`** — runs a command with `OOM score 1000` (first killed under memory pressure) and `nice -n 10` (reduced CPU priority). Uses a subshell + `exec` trick to apply both adjustments to the same process:
-```bash
-(echo 1000 > /proc/self/oom_score_adj && exec nice -n 10 "$@")
-```
-
-**`log_yc.sh`** — wraps a command and streams its output to Yandex Cloud Logging (`yc logging write --group-name=hammy-compute`). stdout → INFO level, stderr → ERROR level. Features built-in rate limiting to avoid flooding the logging API:
-- `LYC_T` — minimum seconds between log writes per level (default: 5)
-- `LYC_ML` — max consecutive lines before throttling kicks in (default: 50); throttled messages get a `...~50` suffix
-- `DISABLE_YC_LOG=true` — suppresses actual API calls (useful for local testing while keeping the counting/formatting)
-
-Each log line gets a `(NNNNNN)` global counter prefix.
-
-**`countdown.sh`** — placeholder `main.sh` in the base image. Counts down 5→1 and exits. Not used in production.
-
-## Compose template (`hammy_machine.compose`)
-
-`hammy_machine.compose` is **not a valid compose file** — it contains two placeholders:
-- `XXX` → image version (e.g. `4.1`)
-- `YYY` → command argument (minutes to run)
-
-`create_hammy_machine.sh` performs `sed` substitution into a temp file before passing to `yc compute instance create-with-container`. The compose spec sets `privileged: true` and reserves 1 NVIDIA GPU.
+- `hammy_machine.compose` — GPU mode (8 cores, 1 GPU, 48G RAM, `gpu-standard-v2`)
+- `hammy_machine_cpu.compose` — CPU-only mode (2 cores, 4G RAM, `standard-v3`) for cheap testing
 
 ## Creating a VM (`create_hammy_machine.sh`)
 
 ```bash
-./create_hammy_machine.sh <version> <minutes>
+./create_hammy_machine.sh <version> "<experiment-args>"          # GPU
+./create_hammy_machine.sh <version> "<experiment-args>" --cpu    # CPU only
 ```
 
-Creates a preemptible Yandex Cloud VM:
-- **Spec**: 8 vCPU, 1 GPU, 48 GB RAM, `gpu-standard-v2`, zone `ru-central1-a`
-- **`--async`**: returns immediately without waiting for the VM to start
-- Service account `compute` must have KMS decrypt permission for the `hammy` key
+Examples:
+```bash
+./create_hammy_machine.sh 5.1 "--level 2 --no-calculations"          # GPU, levels 0-2
+./create_hammy_machine.sh 5.1 "--level 0 --no-calculations" --cpu    # CPU test
+./create_hammy_machine.sh 5.1 "--level 4 --no-calculations"          # GPU, resumes from S3 cache
+```
 
-## Monitoring (`ymonitoring.yml`)
+## Level resumption
 
-Yandex Unified Agent config, copied into the base image at `/etc/yandex/unified_agent/config.yml`. Streams Linux system metrics (CPU, memory, IO, network, kernel, storage) to Yandex Cloud Monitoring every 1s, buffered locally in `/var/lib/yandex/unified_agent/main` (100 MB max).
+S3 storage is configured at the top of `run()`, before any objects are resolved. This enables auto-download of cached results: running `--level 4` after a previous `--level 2` run automatically downloads levels 0-2 from S3 and computes only levels 3-4.
+
+## Building and pushing
+
+```bash
+# Download wheels (only needed when deps change)
+pip download --dest docker/wheels --python-version 3.10 --only-binary=:all: \
+    --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 \
+    xarray cffi psutil boto3 matplotlib h5netcdf scs
+
+# Build and push
+docker build -f docker/hammy.Dockerfile -t sckol/hammy:<version> .
+docker push sckol/hammy:<version>
+
+# Clean up wheels (don't commit them)
+rm -rf docker/wheels
+```

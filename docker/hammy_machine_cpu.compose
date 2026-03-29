@@ -1,0 +1,7 @@
+services:
+  hammy:
+    image: sckol/hammy:XXX
+    command: "YYY"
+    environment:
+      - S3_ACCESS_KEY=AAA
+      - S3_SECRET_KEY=SSS
