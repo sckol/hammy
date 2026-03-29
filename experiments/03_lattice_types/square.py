@@ -7,6 +7,9 @@ from hammy_lib.ccode import CCode
 from . import common as C
 
 
+_BINS = C.get_bins("square")
+
+
 class SquareLatticeExperiment(Experiment):
     experiment_number = 3
     experiment_name = "square"
@@ -17,11 +20,11 @@ class SquareLatticeExperiment(Experiment):
     TARGETS_X = C.TARGETS_X
     TARGETS_Y = C.TARGETS_Y
     TARGETS_LEN = C.TARGETS_LEN
-    X_BINS_TUPLE = C.X_BINS_TUPLE
-    Y_BINS_TUPLE = C.Y_BINS_TUPLE
-    X_BINS_LEN = C.X_BINS_LEN
-    Y_BINS_LEN = C.Y_BINS_LEN
-    BINS_FLAT_LEN = C.BINS_FLAT_LEN
+    X_BINS_TUPLE = _BINS[0]
+    Y_BINS_TUPLE = _BINS[1]
+    X_BINS_LEN = _BINS[2]
+    Y_BINS_LEN = _BINS[3]
+    BINS_FLAT_LEN = _BINS[4]
     NUMPY_WIDTH = C.NUMPY_WIDTH
 
     # Reuse experiment 2's C code (same walk)
@@ -29,10 +32,10 @@ class SquareLatticeExperiment(Experiment):
         _c_dir = Path(__file__).parent.parent / "02_lattice"
     except NameError:
         _c_dir = Path("experiments/02_lattice")
-    c_code = CCode((_c_dir / "lattice.c").read_text(), C.C_DEFINITIONS)
+    c_code = CCode((_c_dir / "lattice.c").read_text(), C.make_c_definitions("square"))
 
     def create_empty_results(self) -> xr.DataArray:
-        return C.create_empty_results()
+        return C.create_empty_results("square")
 
     def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
         rng = np.random.default_rng(seed)

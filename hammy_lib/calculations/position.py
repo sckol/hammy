@@ -312,7 +312,18 @@ class CellPositionCalculation(Calculation):
 
         total = x.sum()
         if total == 0:
-            raise ValueError(f"Zero distribution at coords {coords} — cannot compute position")
+            # No data for this combination — return NaN-filled result
+            D = self.DIMENSIONALITY
+            output_coords = (
+                [f"index{i}" for i in range(D)]
+                + [f"value{i}" for i in range(D)]
+                + ["power", "nonzero_count",
+                   "position_row", "position_col",
+                   "residual", "cell_dim", "fit_quality",
+                   "bilinear_s", "bilinear_t"]
+            )
+            data = np.full(len(output_coords), np.nan)
+            return xr.DataArray(data, dims=["position_data"], coords={"position_data": output_coords})
         x_norm = x / total
 
         result = _compute_position_cell(

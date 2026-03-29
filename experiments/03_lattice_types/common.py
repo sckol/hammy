@@ -61,27 +61,40 @@ CHECKPOINTS_LEN = len(CHECKPOINTS)
 TARGETS_X = [0, 1, 0, 1, 3]
 TARGETS_Y = [0, 0, 1, 1, 2]
 TARGETS_LEN = len(TARGETS_X)
-X_BINS_TUPLE = (-7, 8)  # 15 bins per dimension
-Y_BINS_TUPLE = (-7, 8)
-X_BINS_LEN = X_BINS_TUPLE[1] - X_BINS_TUPLE[0]
-Y_BINS_LEN = Y_BINS_TUPLE[1] - Y_BINS_TUPLE[0]
-BINS_FLAT_LEN = X_BINS_LEN * Y_BINS_LEN
 NUMPY_WIDTH = 100
 
-C_DEFINITIONS = f"""
+# Per-lattice bin ranges: wider for lattices that spread more
+LATTICE_BINS = {
+    "square":     (-7, 8),    # 15 bins — 4-dir walk, narrow spread
+    "triangular": (-10, 11),  # 21 bins — 6-dir walk, wider spread
+    "hexagonal":  (-7, 8),    # 15 bins — 3-dir walk, narrower spread
+    "brick":      (-7, 8),    # 15 bins — 4-dir walk, similar to square
+}
+
+
+def get_bins(lattice_type):
+    bt = LATTICE_BINS[lattice_type]
+    x_len = bt[1] - bt[0]
+    y_len = x_len
+    return bt, bt, x_len, y_len, x_len * y_len
+
+
+def make_c_definitions(lattice_type):
+    x_bins, y_bins, x_len, y_len, flat_len = get_bins(lattice_type)
+    return f"""
   #define T {T}
   int TARGETS_X[] = {{{",".join(str(x) for x in TARGETS_X)}}};
   int TARGETS_Y[] = {{{",".join(str(y) for y in TARGETS_Y)}}};
   #define TARGETS_LEN { TARGETS_LEN }
   int CHECKPOINTS[] = {{{",".join(str(x) for x in CHECKPOINTS)}}};
   #define CHECKPOINTS_LEN { CHECKPOINTS_LEN }
-  #define X_BINS_MIN { X_BINS_TUPLE[0] }
-  #define X_BINS_MAX { X_BINS_TUPLE[1] - 1 }
-  #define X_BINS_LEN { X_BINS_LEN }
-  #define Y_BINS_MIN { Y_BINS_TUPLE[0] }
-  #define Y_BINS_MAX { Y_BINS_TUPLE[1] - 1 }
-  #define Y_BINS_LEN { Y_BINS_LEN }
-  #define BINS_FLAT_LEN { BINS_FLAT_LEN }
+  #define X_BINS_MIN { x_bins[0] }
+  #define X_BINS_MAX { x_bins[1] - 1 }
+  #define X_BINS_LEN { x_len }
+  #define Y_BINS_MIN { y_bins[0] }
+  #define Y_BINS_MAX { y_bins[1] - 1 }
+  #define Y_BINS_LEN { y_len }
+  #define BINS_FLAT_LEN { flat_len }
 """
 
 # Map of graph type name → Graph class
@@ -93,14 +106,15 @@ GRAPH_CLASSES = {
 }
 
 
-def create_empty_results():
-    """Shared result shape for all lattice types."""
+def create_empty_results(lattice_type):
+    """Result shape for a specific lattice type."""
+    x_bins, y_bins, x_len, y_len, _ = get_bins(lattice_type)
     dims = ["target", "checkpoint", "x", "y"]
     coords = {
         "target": list(range(TARGETS_LEN)),
         "checkpoint": CHECKPOINTS,
-        "x": np.arange(*X_BINS_TUPLE),
-        "y": np.arange(*Y_BINS_TUPLE),
+        "x": np.arange(*x_bins),
+        "y": np.arange(*y_bins),
     }
     return xr.DataArray(
         np.zeros(tuple(len(coords[i]) for i in dims), dtype=np.int64),
@@ -141,7 +155,8 @@ def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False
     if no_calculations:
         return {"simulation": simulation, "graph_type": graph_type}
 
-    graph = GRAPH_CLASSES[graph_type](X_BINS_LEN, Y_BINS_LEN)
+    _, _, x_len, y_len, _ = get_bins(graph_type)
+    graph = GRAPH_CLASSES[graph_type](x_len, y_len)
     graph.dump()
 
     position = CellPositionCalculation(
@@ -190,26 +205,28 @@ def run(lattice_types=None, level=4, dry_run=False, no_calculations=False,
         simulation = res["simulation"]
         last_level = int(simulation.results.level.values[-1])
 
-        def make_row_ref(lt_name):
+        x_bins, y_bins, _, _, _ = get_bins(lt)
+
+        def make_row_ref(xb):
             def row_ref(data):
                 ti = int(data.coords["target"].item())
                 tx = TARGETS_X[ti]
                 cps = data.coords["checkpoint"].values
-                return tx * cps / T - X_BINS_TUPLE[0]
+                return tx * cps / T - xb[0]
             return row_ref
 
-        def make_col_ref(lt_name):
+        def make_col_ref(yb):
             def col_ref(data):
                 ti = int(data.coords["target"].item())
                 ty = TARGETS_Y[ti]
                 cps = data.coords["checkpoint"].values
-                return ty * cps / T - Y_BINS_TUPLE[0]
+                return ty * cps / T - yb[0]
             return col_ref
 
         # Position row
         Vizualization(
             results_object=position, x="platform", y="target",
-            cell_renderer=line_renderer(axis="checkpoint", reference=make_row_ref(lt)),
+            cell_renderer=line_renderer(axis="checkpoint", reference=make_row_ref(x_bins)),
             filter={"level": last_level, "position_data": "position_row"},
             title=f"{lt}: Position row by checkpoint",
             id=f"viz_{lt}_position_row",
@@ -218,7 +235,7 @@ def run(lattice_types=None, level=4, dry_run=False, no_calculations=False,
         # Position col
         Vizualization(
             results_object=position, x="platform", y="target",
-            cell_renderer=line_renderer(axis="checkpoint", reference=make_col_ref(lt)),
+            cell_renderer=line_renderer(axis="checkpoint", reference=make_col_ref(y_bins)),
             filter={"level": last_level, "position_data": "position_col"},
             title=f"{lt}: Position col by checkpoint",
             id=f"viz_{lt}_position_col",

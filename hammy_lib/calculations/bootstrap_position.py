@@ -142,7 +142,14 @@ class BootstrapCellPositionCalculation(Calculation):
 
         total = x.sum()
         if total == 0:
-            raise ValueError(f"Zero distribution at coords {coords} — cannot compute position")
+            output_coords = [
+                "bootstrap_row_mean", "bootstrap_row_std",
+                "bootstrap_col_mean", "bootstrap_col_std",
+            ]
+            return xr.DataArray(
+                np.full(4, np.nan), dims=["bootstrap_data"],
+                coords={"bootstrap_data": output_coords},
+            )
 
         x_norm = x / total
 
