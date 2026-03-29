@@ -8,9 +8,17 @@ on:
       - 'hammy_docs/**'
       - '.github/workflows/build-docs.yml'
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build-docs:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
     - name: Checkout repository
@@ -26,9 +34,11 @@ jobs:
           -e SITE_NAME="hammy — Random Walk Experiments" \
           sckol/obsidian-exporter:0.3.0
 
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v4
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: /tmp/hammy-docs-html
-        publish_branch: gh-pages
+        path: /tmp/hammy-docs-html
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
