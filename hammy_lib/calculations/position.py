@@ -134,6 +134,204 @@ def _compute_position(x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
     }
 
 
+def _identify_cell(indices, weights, cells, node_to_cells):
+    """Map weighted graph nodes to the best-fitting cell using GBCs.
+
+    For a square cell with corners (n00, n10, n01, n11), GBCs reduce to
+    inverse bilinear interpolation:
+        s = (w10 + w11) / w_total   (fraction on column+1 side)
+        t = (w01 + w11) / w_total   (fraction on row+1 side)
+
+    Returns (cell_nodes, (s, t), cell_dim, fit_quality).
+    """
+    index_to_weight = dict(zip(indices, weights))
+
+    # Find the cell capturing the most weight
+    best_cell_idx = -1
+    best_weight = 0.0
+    seen_cells = set()
+    for idx in indices:
+        for ci in node_to_cells.get(int(idx), []):
+            if ci in seen_cells:
+                continue
+            seen_cells.add(ci)
+            cell = cells[ci]
+            cell_weight = sum(index_to_weight.get(n, 0.0) for n in cell)
+            if cell_weight > best_weight:
+                best_weight = cell_weight
+                best_cell_idx = ci
+
+    if best_cell_idx < 0:
+        # No cell found — vertex fallback
+        top = np.argmax(weights)
+        return np.array([indices[top]]), (0.0, 0.0), 0, float(weights[top])
+
+    cell = cells[best_cell_idx]
+    n00, n10, n01, n11 = cell
+    w00 = index_to_weight.get(n00, 0.0)
+    w10 = index_to_weight.get(n10, 0.0)
+    w01 = index_to_weight.get(n01, 0.0)
+    w11 = index_to_weight.get(n11, 0.0)
+    w_total = w00 + w10 + w01 + w11
+
+    s = (w10 + w11) / w_total if w_total > 0 else 0.0
+    t = (w01 + w11) / w_total if w_total > 0 else 0.0
+
+    nonzero_corners = sum(1 for w in (w00, w10, w01, w11) if w > 0)
+    cell_dim = max(0, nonzero_corners - 1)
+
+    fit_quality = float(w_total / weights.sum()) if weights.sum() > 0 else 0.0
+    cell_nodes = np.array(cell)
+
+    return cell_nodes, (s, t), cell_dim, fit_quality
+
+
+def _compute_position_cell(x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
+                           cells, node_to_cells, node_to_coords_fn,
+                           p_min=1.0, p_max=10000.0):
+    """Position computation using cell identification + GBCs.
+
+    Same as _compute_position steps 1-3, then _identify_cell instead of _identify_simplex.
+    Returns 2D continuous position (row, col).
+    """
+    power = _find_power(eigvals, eigvecs_inv, x_norm, p_min, p_max)
+
+    eigvals_powered = eigvals.astype(np.complex128) ** power
+    V = np.real(eigvecs @ np.diag(eigvals_powered) @ eigvecs_inv)
+
+    weights, nnls_residual = scipy.optimize.nnls(V, x_norm)
+
+    threshold = 0.01 * weights.max() if weights.max() > 0 else 0.0
+    nonzero_indices = np.flatnonzero(weights >= threshold)
+    nonzero_values = weights[nonzero_indices]
+    weight_sum = nonzero_values.sum()
+    norm_values = nonzero_values / weight_sum if weight_sum > 0 else nonzero_values
+    n_components = len(nonzero_indices)
+
+    if n_components > 0:
+        cell_nodes, (s, t), cell_dim, fit_quality = _identify_cell(
+            nonzero_indices, norm_values, cells, node_to_cells
+        )
+        r0, c0 = node_to_coords_fn(int(cell_nodes[0]))
+        position_row = float(r0 + t)
+        position_col = float(c0 + s)
+    else:
+        cell_nodes = np.array([])
+        s, t = 0.0, 0.0
+        cell_dim = -1
+        fit_quality = 0.0
+        position_row = -1.0
+        position_col = -1.0
+
+    x_norm_norm = np.linalg.norm(x_norm)
+    relative_residual = float(nnls_residual / x_norm_norm) if x_norm_norm > 0 else 0.0
+
+    return {
+        'nonzero_indices': nonzero_indices,
+        'norm_values': norm_values,
+        'power': power,
+        'n_components': n_components,
+        'residual': relative_residual,
+        'position_row': position_row,
+        'position_col': position_col,
+        'cell_dim': cell_dim,
+        'fit_quality': fit_quality,
+        'bilinear_s': s,
+        'bilinear_t': t,
+    }
+
+
+class CellPositionCalculation(Calculation):
+    """Position on graph using cell identification + Generalized Barycentric Coordinates.
+
+    For 2D lattice graphs, cells are squares and GBCs reduce to bilinear
+    interpolation.  Returns 2D continuous position (row, col) instead of
+    a single continuous_position scalar.
+    """
+
+    DIMENSIONALITY = 4  # max cell corners
+    P_MIN = 1.0
+    P_MAX = 10000.0
+
+    def __init__(self, main_input, graph, spatial_dims=("position_index",), id=None):
+        super().__init__(main_input, id)
+        self.graph = graph
+        self.spatial_dims = tuple(spatial_dims)
+
+    @property
+    def independent_dimensions(self) -> list[str]:
+        return [str(d) for d in self.main_input.results.dims if d not in self.spatial_dims]
+
+    @property
+    def simple_type_return(self):
+        return False
+
+    def calculate_unit(self, input_array: xr.DataArray, coords: dict) -> xr.DataArray:
+        eigvals = self.graph.results["eigenvalues"].values
+        eigvecs = self.graph.results["eigenvectors"].values
+        eigvecs_inv = self.graph.results["eigenvectors_inv"].values
+
+        tm = self.graph.results["transition_matrix"].values
+        n = tm.shape[0]
+        adjacency = (tm > 0) & ~np.eye(n, dtype=bool)
+
+        cells = self.graph.get_cells()
+        node_to_cells = self.graph.get_node_to_cells()
+
+        if len(self.spatial_dims) > 1:
+            x = input_array.stack(position_index=self.spatial_dims).values.astype(float)
+        else:
+            x = input_array.values.astype(float)
+
+        total = x.sum()
+        if total == 0:
+            raise ValueError(f"Zero distribution at coords {coords} — cannot compute position")
+        x_norm = x / total
+
+        result = _compute_position_cell(
+            x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
+            cells, node_to_cells, self.graph.node_to_coords,
+            self.P_MIN, self.P_MAX,
+        )
+
+        nonzero_indices = result['nonzero_indices']
+        norm_values = result['norm_values']
+        n_components = result['n_components']
+
+        if n_components > self.DIMENSIONALITY:
+            top = np.argsort(norm_values)[-self.DIMENSIONALITY:][::-1]
+            top_indices = nonzero_indices[top]
+            top_values = norm_values[top]
+        else:
+            top_indices = nonzero_indices
+            top_values = norm_values
+
+        D = self.DIMENSIONALITY
+        output_coords = (
+            [f"index{i}" for i in range(D)]
+            + [f"value{i}" for i in range(D)]
+            + ["power", "nonzero_count",
+               "position_row", "position_col",
+               "residual", "cell_dim", "fit_quality",
+               "bilinear_s", "bilinear_t"]
+        )
+        data = np.zeros(len(output_coords), dtype=float)
+        for i in range(D):
+            data[i] = float(top_indices[i]) if i < len(top_indices) else -1.0
+            data[D + i] = float(top_values[i]) if i < len(top_values) else 0.0
+        data[2 * D] = float(result['power'])
+        data[2 * D + 1] = float(n_components)
+        data[2 * D + 2] = result['position_row']
+        data[2 * D + 3] = result['position_col']
+        data[2 * D + 4] = result['residual']
+        data[2 * D + 5] = float(result['cell_dim'])
+        data[2 * D + 6] = result['fit_quality']
+        data[2 * D + 7] = result['bilinear_s']
+        data[2 * D + 8] = result['bilinear_t']
+
+        return xr.DataArray(data, dims=["position_data"], coords={"position_data": output_coords})
+
+
 class PositionCalculation(Calculation):
     """Describes the state of a non-standard random walk as a position on the graph.
 
