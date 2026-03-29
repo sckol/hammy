@@ -3,7 +3,9 @@ name: Build and Deploy Documentation
 on:
   push:
     branches:
-      - main  # or the branch you want to trigger the workflow
+      - main
+    paths:
+      - 'hammy_docs/**'
 
 jobs:
   build-docs:
@@ -11,18 +13,18 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Convert Obsidian Vault to HTML
       run: |
         docker run --rm \
-          -v "$(pwd)/hammy-docs:/root/vault" \
-          -v "$(pwd)/hammy-docs-html:/root/vault_html" \
+          -v "$(pwd)/hammy_docs:/root/vault" \
+          -v "$(pwd)/hammy_docs_html:/root/vault_html" \
           adventum/obsidian-exporter:0.1.1
 
     - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
+      uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./hammy-docs-html
-        publish_branch: gh-pages  # The branch GitHub Pages uses
+        publish_dir: ./hammy_docs_html
+        publish_branch: gh-pages

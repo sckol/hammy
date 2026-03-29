@@ -35,7 +35,7 @@ Experiments support 6 execution modes:
 |---|---|---|
 | **Local file** | `cd experiments/01_walk && python walk.py` | Full pipeline, results in project root |
 | **Local module** | `python -m experiments.01_walk --level 2 --no-viz` | Selective steps via CLI flags |
-| **Yandex Cloud** | `./create_hammy_machine.sh <version> <minutes>` | Docker container, same CLI flags |
+| **Yandex Cloud** | `./create_hammy_machine.sh <version> "<args>" [--cpu]` | Docker container, same CLI flags |
 | **Google Colab** | Open walk.py as notebook | Set `CCODE` variable for C source, one cell per viz |
 | **Debug C** | `cmake -B build && cmake --build build && ./build/walk` | Standalone C executable via walk.h |
 | **Debug CUDA** | Compile .cu on GPU server | Uses `to_cuda_source()` output |
@@ -49,9 +49,17 @@ Experiments support 6 execution modes:
 
 **Colab specifics**: set `CCODE = "..."` in the CCODE cell to provide C source inline (otherwise reads from walk.c file). Each visualization has its own cell for inline display. S3 credentials via Colab Secrets (`access_key`, `secret_key`).
 
+### Experiment workflow (standard sequence)
+
+1. **Local test** — run locally to verify correctness
+2. **Google Colab** — manual run by human (browser only, cannot be automated); confirms the experiment works correctly with GPU (Tesla T4)
+3. **Yandex Cloud** — final production run via `create_hammy_machine.sh`; generates the most iterations (CUDA backend); **results from this run are used for final conclusions**
+
+Use `--profile hammy` for all `yc` CLI commands in this project. S3 bucket: `hammy`. Downloaded results go to `~/hammy/results/`.
+
 **Single-core machines** (e.g. Colab): `ExperimentConfiguration` auto-detects cores and ensures CFFI gets at least 1 thread. PYTHON and CFFI time-share the CPU core while CUDA runs async on GPU. Use `calibration_tolerance=100` for `ParallelCalibration` (exposed via `experiment_configuration.cores`).
 
-Docker files are in `docker/`: `hammy-base.Dockerfile` (base deps), `hammy.Dockerfile` (experiment runner), `hammy_entrypoint.sh` (entrypoint), `hammy_machine.compose` (Compose config).
+Docker files are in `docker/`: `hammy.Dockerfile` (single-layer image from `cupy/cupy`), `entrypoint.sh` (self-destruct lifecycle), `hammy_machine.compose` (GPU template), `hammy_machine_cpu.compose` (CPU-only template). S3 credentials are injected via env vars from `~/secrets.env` (`HAMMY_S3_ACCESS_KEY`, `HAMMY_S3_SECRET_KEY`). See `docker/CLAUDE.md` for build/deploy details.
 
 ## Architecture
 
