@@ -25,7 +25,7 @@ class YandexCloudStorage:
             f = frame
             while f is not None:
                 for ns in (f.f_locals, f.f_globals):
-                    for obj in ns.values():
+                    for obj in list(ns.values()):
                         if isinstance(obj, HammyObject) and id(obj) not in seen_ids:
                             seen_ids.add(id(obj))
                             result.append(obj)

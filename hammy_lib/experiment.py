@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import assert_never
+import sys
+if sys.version_info >= (3, 11):
+    from typing import assert_never
+else:
+    def assert_never(x): raise AssertionError(f"Unexpected value: {x!r}")
 from pathlib import Path
 import xarray as xr
 from cffi import FFI

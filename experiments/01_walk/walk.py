@@ -18,7 +18,8 @@ from hammy_lib.simulation import Simulation
 from hammy_lib.calculations.popsize import PopulationSizeCalculation, bridged_random_walk_distribution
 from hammy_lib.graph import LinearGraph
 from hammy_lib.calculations.position import PositionCalculation
-from hammy_lib.vizualization import Vizualization
+from hammy_lib.calculations.bootstrap_position import BootstrapPositionCalculation
+from hammy_lib.vizualization import Vizualization, line_renderer, line_with_errors_renderer, bar_chart_renderer
 
 
 def _try_enable_mkl():
@@ -114,6 +115,23 @@ class WalkExperiment(Experiment):
 
 # Configuration
 def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=False):
+    # S3 Storage — set up FIRST so all objects auto-download from cache
+    if not no_upload:
+        try:
+            from google.colab import userdata
+            access_key = userdata.get('access_key')
+            secret_key = userdata.get('secret_key')
+        except ImportError:
+            access_key = os.environ.get('S3_ACCESS_KEY')
+            secret_key = os.environ.get('S3_SECRET_KEY')
+
+        if access_key and secret_key:
+            from hammy_lib.yandex_cloud_storage import YandexCloudStorage
+            storage = YandexCloudStorage(access_key, secret_key, "hammy")
+            HammyObject.STORAGE = storage
+        else:
+            no_upload = True
+
     experiment = WalkExperiment()
     experiment.dump()
     experiment.compile()
@@ -138,6 +156,9 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     simulation = Simulation(parallel_calibration, simulation_level=level)
     simulation.dump()
 
+    if not no_upload:
+        storage.upload()
+
     # Calculation: PopulationSize
     if not no_calculations:
         popsize = PopulationSizeCalculation(simulation, bridged_random_walk_distribution)
@@ -159,24 +180,45 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             results_object=simulation,
             x="checkpoint",
             y="target",
-            axis="x",
-            filter={"level": last_level, "platform": "CFFI"},
-            y_axis_label="Count",
+            cell_renderer=bar_chart_renderer(axis="x"),
+            filter={"level": last_level, "platform": "CFFI",
+                    "checkpoint": WalkExperiment.CHECKPOINTS[:-1]},
+            title="Count by x",
         ).dump()
 
-    # Viz: Position
+    # Viz: Position (line)
+    if not no_calculations and not no_viz:
+        position_ref = lambda data: (  # noqa: E731
+            data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
+            - WalkExperiment.BINS_TUPLE[0]
+        )
+
+        Vizualization(
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_renderer(
+                axis="checkpoint",
+                reference=position_ref,
+            ),
+            filter={"level": last_level, "position_data": "index0"},  # pyright: ignore[reportPossiblyUnboundVariable]
+            title="Position (bin index) by checkpoint",
+        ).dump()
+
+    # Viz: Position with error band
     if not no_calculations and not no_viz:
         Vizualization(
             results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
-            axis="checkpoint",
-            filter={"level": last_level, "position_data": "index0"},  # pyright: ignore[reportPossiblyUnboundVariable]
-            reference=lambda data: (
-                data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
-                - WalkExperiment.BINS_TUPLE[0]
+            cell_renderer=line_with_errors_renderer(
+                axis="checkpoint",
+                error=2.0,
+                reference=position_ref,  # pyright: ignore[reportPossiblyUnboundVariable]
             ),
-            y_axis_label="Position (bin index)",
+            filter={"level": last_level, "position_data": "index0"},  # pyright: ignore[reportPossiblyUnboundVariable]
+            title="Position (bin index) with error band",
+            sharey=False,
         ).dump()
 
     # Viz: Population size
@@ -185,10 +227,12 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             results_object=popsize,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
-            axis="level",
-            filter={"checkpoint": 500, },
-            reference=lambda data: np.ones(len(data.coords["level"].values)),
-            y_axis_label="1/φ",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.ones(len(data.coords["level"].values)),
+            ),
+            filter={"checkpoint": 500},
+            title="1/φ by level",
         ).dump()
 
     # Viz: NNLS component count
@@ -197,25 +241,112 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
             results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
             x="platform",
             y="target",
-            axis="level",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.full(len(data.coords["level"].values), 2.0),
+            ),
             filter={"checkpoint": 500, "position_data": "nonzero_count"},
-            reference=lambda data: np.full(len(data.coords["level"].values), 2.0),
-            y_axis_label="NNLS component count",
+            title="NNLS component count by level",
         ).dump()
 
-    # S3 Upload
-    if not no_upload:
-        try:
-            from google.colab import userdata
-            access_key = userdata.get('access_key')
-            secret_key = userdata.get('secret_key')
-        except ImportError:
-            access_key = os.environ.get('S3_ACCESS_KEY')
-            secret_key = os.environ.get('S3_SECRET_KEY')
+    # Calculation: Bootstrap position
+    if not no_calculations:
+        bootstrap = BootstrapPositionCalculation(
+            simulation, graph=graph, dimensionality=2,  # pyright: ignore[reportPossiblyUnboundVariable]
+            spatial_dims=("x",), n_bootstrap=200,
+        )
+        bootstrap.dump()
 
-        from hammy_lib.yandex_cloud_storage import YandexCloudStorage
-        storage = YandexCloudStorage(access_key, secret_key, "hammy")
-        HammyObject.STORAGE = storage
+    # Continuous position reference (node-index space: target * checkpoint/T + 50)
+    if not no_calculations and not no_viz:
+        continuous_ref = lambda data: (  # noqa: E731
+            data.coords["target"].item() * data.coords["checkpoint"].values / WalkExperiment.T
+            - WalkExperiment.BINS_TUPLE[0]
+        )
+
+        def _make_bootstrap_error(bootstrap_calc):
+            std_data = bootstrap_calc.results.sel(bootstrap_data="bootstrap_std")
+            def error_func(data):
+                return std_data.sel(
+                    target=data.coords["target"].item(),
+                    platform=data.coords["platform"].item(),
+                    level=data.coords["level"].item(),
+                ).values
+            return error_func
+
+        # Viz: Continuous position with bootstrap CI
+        Vizualization(
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_with_errors_renderer(
+                axis="checkpoint",
+                error=_make_bootstrap_error(bootstrap),  # pyright: ignore[reportPossiblyUnboundVariable]
+                reference=continuous_ref,
+            ),
+            filter={"level": last_level, "position_data": "continuous_position"},  # pyright: ignore[reportPossiblyUnboundVariable]
+            title="Continuous position with bootstrap CI",
+            sharey=False,
+        ).dump()
+
+        # Viz: Continuous position convergence by level
+        Vizualization(
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.full(
+                    len(data.coords["level"].values),
+                    data.coords["target"].item() * 500 / WalkExperiment.T
+                    - WalkExperiment.BINS_TUPLE[0],
+                ),
+            ),
+            filter={"checkpoint": 500, "position_data": "continuous_position"},
+            title="Continuous position by level (checkpoint=500)",
+        ).dump()
+
+        # Viz: NNLS residual by level
+        Vizualization(
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.zeros(len(data.coords["level"].values)),
+            ),
+            filter={"checkpoint": 500, "position_data": "residual"},
+            title="NNLS residual by level",
+        ).dump()
+
+        # Viz: Simplex fit quality by level
+        Vizualization(
+            results_object=position,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.ones(len(data.coords["level"].values)),
+            ),
+            filter={"checkpoint": 500, "position_data": "fit_quality"},
+            title="Simplex fit quality by level",
+        ).dump()
+
+        # Viz: Bootstrap position std by level
+        Vizualization(
+            results_object=bootstrap,  # pyright: ignore[reportPossiblyUnboundVariable]
+            x="platform",
+            y="target",
+            cell_renderer=line_renderer(
+                axis="level",
+                reference=lambda data: np.zeros(len(data.coords["level"].values)),
+            ),
+            filter={"checkpoint": 500, "bootstrap_data": "bootstrap_std"},
+            title="Bootstrap position std by level",
+        ).dump()
+
+    # Final S3 upload (calculations + vizs)
+    if not no_upload:
         storage.upload()
 
     return simulation
