@@ -173,9 +173,18 @@ class BootstrapCellPositionCalculation(Calculation):
                 cell_nodes, (s, t), _, _ = _identify_cell(
                     nonzero_indices, norm_values, cells, node_to_cells,
                 )
-                r0, c0 = self.graph.node_to_coords(int(cell_nodes[0]))
-                rows_list.append(float(r0 + t))
-                cols_list.append(float(c0 + s))
+                coords = [self.graph.node_to_coords(int(n)) for n in cell_nodes]
+                if len(cell_nodes) == 3:
+                    w0, w1, w2 = 1 - s - t, s, t
+                    rows_list.append(float(w0 * coords[0][0] + w1 * coords[1][0] + w2 * coords[2][0]))
+                    cols_list.append(float(w0 * coords[0][1] + w1 * coords[1][1] + w2 * coords[2][1]))
+                elif len(cell_nodes) == 4:
+                    rows_list.append(float((1-t)*((1-s)*coords[0][0]+s*coords[1][0]) + t*((1-s)*coords[2][0]+s*coords[3][0])))
+                    cols_list.append(float((1-t)*((1-s)*coords[0][1]+s*coords[1][1]) + t*((1-s)*coords[2][1]+s*coords[3][1])))
+                else:
+                    nw = norm_values[:len(cell_nodes)] / norm_values[:len(cell_nodes)].sum()
+                    rows_list.append(float(sum(w * c[0] for w, c in zip(nw, coords))))
+                    cols_list.append(float(sum(w * c[1] for w, c in zip(nw, coords))))
             else:
                 rows_list.append(-1.0)
                 cols_list.append(-1.0)

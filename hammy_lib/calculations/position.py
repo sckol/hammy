@@ -137,10 +137,11 @@ def _compute_position(x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
 def _identify_cell(indices, weights, cells, node_to_cells):
     """Map weighted graph nodes to the best-fitting cell using GBCs.
 
-    For a square cell with corners (n00, n10, n01, n11), GBCs reduce to
-    inverse bilinear interpolation:
-        s = (w10 + w11) / w_total   (fraction on column+1 side)
-        t = (w01 + w11) / w_total   (fraction on row+1 side)
+    Dispatches based on cell size:
+    - 3-node (triangle): barycentric coordinates → (s, t) where position =
+      v0 + s*(v1-v0) + t*(v2-v0), i.e. s = w1, t = w2.
+    - 4-node (quad): inverse bilinear → s = w10+w11, t = w01+w11.
+    - Other: centroid (weighted average of all cell node weights).
 
     Returns (cell_nodes, (s, t), cell_dim, fit_quality).
     """
@@ -167,21 +168,32 @@ def _identify_cell(indices, weights, cells, node_to_cells):
         return np.array([indices[top]]), (0.0, 0.0), 0, float(weights[top])
 
     cell = cells[best_cell_idx]
-    n00, n10, n01, n11 = cell
-    w00 = index_to_weight.get(n00, 0.0)
-    w10 = index_to_weight.get(n10, 0.0)
-    w01 = index_to_weight.get(n01, 0.0)
-    w11 = index_to_weight.get(n11, 0.0)
-    w_total = w00 + w10 + w01 + w11
-
-    s = (w10 + w11) / w_total if w_total > 0 else 0.0
-    t = (w01 + w11) / w_total if w_total > 0 else 0.0
-
-    nonzero_corners = sum(1 for w in (w00, w10, w01, w11) if w > 0)
-    cell_dim = max(0, nonzero_corners - 1)
-
+    cell_weights = [index_to_weight.get(n, 0.0) for n in cell]
+    w_total = sum(cell_weights)
     fit_quality = float(w_total / weights.sum()) if weights.sum() > 0 else 0.0
+    nonzero_corners = sum(1 for w in cell_weights if w > 0)
+    cell_dim = max(0, nonzero_corners - 1)
     cell_nodes = np.array(cell)
+
+    if w_total <= 0:
+        return cell_nodes, (0.0, 0.0), 0, fit_quality
+
+    if len(cell) == 3:
+        # Triangle: barycentric coordinates
+        # cell = (n0, n1, n2). s = w1/total, t = w2/total.
+        # Position = n0 + s*(n1-n0) + t*(n2-n0) = (1-s-t)*n0 + s*n1 + t*n2
+        s = cell_weights[1] / w_total
+        t = cell_weights[2] / w_total
+    elif len(cell) == 4:
+        # Quad: inverse bilinear
+        # cell = (n00, n10, n01, n11)
+        s = (cell_weights[1] + cell_weights[3]) / w_total  # right side
+        t = (cell_weights[2] + cell_weights[3]) / w_total  # bottom side
+    else:
+        # General: centroid-based (s, t as fraction along cell span)
+        norm_w = [w / w_total for w in cell_weights]
+        s = sum(i * w for i, w in enumerate(norm_w))  # weighted index
+        t = 0.0  # 1D for general cells
 
     return cell_nodes, (s, t), cell_dim, fit_quality
 
@@ -212,9 +224,24 @@ def _compute_position_cell(x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
         cell_nodes, (s, t), cell_dim, fit_quality = _identify_cell(
             nonzero_indices, norm_values, cells, node_to_cells
         )
-        r0, c0 = node_to_coords_fn(int(cell_nodes[0]))
-        position_row = float(r0 + t)
-        position_col = float(c0 + s)
+        # Compute position using GBC weights applied to node coordinates.
+        # For triangle: w0=1-s-t, w1=s, w2=t → pos = w0*p0 + w1*p1 + w2*p2
+        # For quad: bilinear → pos = (1-t)*((1-s)*p00 + s*p10) + t*((1-s)*p01 + s*p11)
+        coords = [node_to_coords_fn(int(n)) for n in cell_nodes]
+        if len(cell_nodes) == 3:
+            w0, w1, w2 = 1 - s - t, s, t
+            position_row = float(w0 * coords[0][0] + w1 * coords[1][0] + w2 * coords[2][0])
+            position_col = float(w0 * coords[0][1] + w1 * coords[1][1] + w2 * coords[2][1])
+        elif len(cell_nodes) == 4:
+            position_row = float((1 - t) * ((1 - s) * coords[0][0] + s * coords[1][0])
+                                 + t * ((1 - s) * coords[2][0] + s * coords[3][0]))
+            position_col = float((1 - t) * ((1 - s) * coords[0][1] + s * coords[1][1])
+                                 + t * ((1 - s) * coords[2][1] + s * coords[3][1]))
+        else:
+            # Fallback: weighted centroid
+            norm_w = norm_values[:len(cell_nodes)] / norm_values[:len(cell_nodes)].sum()
+            position_row = float(sum(w * node_to_coords_fn(int(n))[0] for w, n in zip(norm_w, cell_nodes)))
+            position_col = float(sum(w * node_to_coords_fn(int(n))[1] for w, n in zip(norm_w, cell_nodes)))
     else:
         cell_nodes = np.array([])
         s, t = 0.0, 0.0
