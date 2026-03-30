@@ -3,7 +3,7 @@ import scipy.optimize
 import xarray as xr
 from ..calculation import Calculation
 from ..graph import Graph
-from .position import _find_power, _identify_simplex, _identify_cell
+from .position import _find_power, _identify_simplex, _identify_cell, _assemble_cell_result
 
 
 class BootstrapPositionCalculation(Calculation):
@@ -154,8 +154,32 @@ class BootstrapCellPositionCalculation(Calculation):
         x_norm = x / total
 
         power = _find_power(eigvals, eigvecs_inv, x_norm)
-        eigvals_powered = eigvals.astype(np.complex128) ** power
-        V = np.real(eigvecs @ np.diag(eigvals_powered) @ eigvecs_inv)
+
+        # --- Windowed + truncated spectral (precompute once, reuse for all bootstrap) ---
+        n = len(x_norm)
+        support = np.flatnonzero(x_norm > 0)
+        padding = 5
+        coords_s = np.array([self.graph.node_to_coords(int(i)) for i in support])
+        last_r, last_c = self.graph.node_to_coords(n - 1)
+        graph_cols = last_c + 1
+        graph_rows = last_r + 1
+        r_min = max(0, coords_s[:, 0].min() - padding)
+        r_max = min(graph_rows - 1, coords_s[:, 0].max() + padding)
+        c_min = max(0, coords_s[:, 1].min() - padding)
+        c_max = min(graph_cols - 1, coords_s[:, 1].max() + padding)
+        window = np.array([r * graph_cols + c
+                           for r in range(r_min, r_max + 1)
+                           for c in range(c_min, c_max + 1)
+                           if r * graph_cols + c < n], dtype=int)
+
+        lam_p_abs = np.abs(eigvals) ** power
+        top_k = np.flatnonzero(lam_p_abs > 1e-8)
+        eigvals_powered = eigvals[top_k].astype(np.complex128) ** power
+        V_win = np.real(
+            eigvecs[np.ix_(window, top_k)]
+            @ np.diag(eigvals_powered)
+            @ eigvecs_inv[np.ix_(top_k, window)]
+        )
 
         rng = np.random.default_rng(42)
         rows_list = []
@@ -166,32 +190,26 @@ class BootstrapCellPositionCalculation(Calculation):
             boot_total = x_boot.sum()
             if boot_total == 0:
                 continue
-            x_boot_norm = x_boot / boot_total
+            x_boot_win = x_boot[window]
+            x_boot_win_norm = x_boot_win / boot_total
 
-            weights, _ = scipy.optimize.nnls(V, x_boot_norm)
+            weights_win, _ = scipy.optimize.nnls(V_win, x_boot_win_norm)
 
-            threshold = 0.01 * weights.max() if weights.max() > 0 else 0.0
-            nonzero_indices = np.flatnonzero(weights >= threshold)
-            nonzero_values = weights[nonzero_indices]
+            threshold = 0.01 * weights_win.max() if weights_win.max() > 0 else 0.0
+            nonzero_win = np.flatnonzero(weights_win >= threshold)
+            nonzero_indices = window[nonzero_win]
+            nonzero_values = weights_win[nonzero_win]
             weight_sum = nonzero_values.sum()
             norm_values = nonzero_values / weight_sum if weight_sum > 0 else nonzero_values
 
             if len(nonzero_indices) > 0:
-                cell_nodes, (s, t), _, _ = _identify_cell(
-                    nonzero_indices, norm_values, cells, node_to_cells,
+                result = _assemble_cell_result(
+                    nonzero_indices, norm_values, len(nonzero_indices),
+                    power, 0.0, x_norm, cells, node_to_cells,
+                    self.graph.node_to_coords,
                 )
-                coords = [self.graph.node_to_coords(int(n)) for n in cell_nodes]
-                if len(cell_nodes) == 3:
-                    w0, w1, w2 = 1 - s - t, s, t
-                    rows_list.append(float(w0 * coords[0][0] + w1 * coords[1][0] + w2 * coords[2][0]))
-                    cols_list.append(float(w0 * coords[0][1] + w1 * coords[1][1] + w2 * coords[2][1]))
-                elif len(cell_nodes) == 4:
-                    rows_list.append(float((1-t)*((1-s)*coords[0][0]+s*coords[1][0]) + t*((1-s)*coords[2][0]+s*coords[3][0])))
-                    cols_list.append(float((1-t)*((1-s)*coords[0][1]+s*coords[1][1]) + t*((1-s)*coords[2][1]+s*coords[3][1])))
-                else:
-                    nw = norm_values[:len(cell_nodes)] / norm_values[:len(cell_nodes)].sum()
-                    rows_list.append(float(sum(w * c[0] for w, c in zip(nw, coords))))
-                    cols_list.append(float(sum(w * c[1] for w, c in zip(nw, coords))))
+                rows_list.append(result['position_row'])
+                cols_list.append(result['position_col'])
             else:
                 rows_list.append(-1.0)
                 cols_list.append(-1.0)
