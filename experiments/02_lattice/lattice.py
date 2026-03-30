@@ -217,6 +217,10 @@ def run(level=4, dry_run=False, no_calculations=False, no_viz=False, no_upload=F
     if not no_upload:
         storage.upload()
 
+    # Re-enable multi-core BLAS for calculation phase (Pool is done)
+    for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.pop(var, None)
+
     # Calculation: Cell Position (2D lattice, GBC / inverse bilinear)
     if not no_calculations:
         graph = LatticeGraph2D(LatticeExperiment.X_BINS_LEN, LatticeExperiment.Y_BINS_LEN)

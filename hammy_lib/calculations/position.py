@@ -339,6 +339,97 @@ def _empty_cell_result(power):
     }
 
 
+def _compute_position_cell_mp(x_norm, eigvals, eigvecs, eigvecs_inv,
+                              cells, node_to_cells, node_to_coords_fn,
+                              window_padding=5, eigval_threshold=1e-3,
+                              max_components=6,
+                              p_min=1.0, p_max=10000.0,
+                              power_precomputed=None):
+    """Position via matching pursuit (greedy sparse NNLS).
+
+    Same pipeline as _fast, but replaces scipy.nnls with greedy column
+    selection.  Faster for large windows, but approximate — may miss
+    weak distant components in non-local distributions.
+
+    Use NNLS methods for studies involving non-locality.
+    """
+    power = _find_power(eigvals, eigvecs_inv, x_norm, p_min, p_max,
+                        precomputed=power_precomputed)
+
+    support = np.flatnonzero(x_norm > 0)
+    if len(support) == 0:
+        return _empty_cell_result(power)
+
+    n = len(x_norm)
+    coords_s = np.array([node_to_coords_fn(int(i)) for i in support])
+    last_r, last_c = node_to_coords_fn(n - 1)
+    graph_cols = last_c + 1
+    graph_rows = last_r + 1
+    r_min = max(0, int(coords_s[:, 0].min()) - window_padding)
+    r_max = min(graph_rows - 1, int(coords_s[:, 0].max()) + window_padding)
+    c_min = max(0, int(coords_s[:, 1].min()) - window_padding)
+    c_max = min(graph_cols - 1, int(coords_s[:, 1].max()) + window_padding)
+    window = np.array([r * graph_cols + c
+                       for r in range(r_min, r_max + 1)
+                       for c in range(c_min, c_max + 1)
+                       if r * graph_cols + c < n], dtype=int)
+    m = len(window)
+
+    lam_p_abs = np.abs(eigvals) ** power
+    top_k = np.flatnonzero(lam_p_abs > eigval_threshold)
+    if len(top_k) == 0:
+        return _empty_cell_result(power)
+    eigvals_powered = eigvals[top_k].astype(np.complex128) ** power
+    V_win = np.real(
+        eigvecs[np.ix_(window, top_k)]
+        @ np.diag(eigvals_powered)
+        @ eigvecs_inv[np.ix_(top_k, window)]
+    )
+    x_win = x_norm[window]
+
+    # --- Greedy matching pursuit ---
+    residual = x_win.copy()
+    selected = []
+    for _ in range(max_components):
+        correlations = V_win.T @ residual
+        correlations[correlations < 0] = 0
+        for s in selected:
+            correlations[s] = 0
+        best = int(np.argmax(correlations))
+        if correlations[best] < 0.001 * np.linalg.norm(x_win):
+            break
+        selected.append(best)
+        V_sel = V_win[:, selected]
+        w_sel, _ = scipy.optimize.nnls(V_sel, x_win)
+        keep = w_sel > 0.001 * w_sel.max()
+        selected = [selected[i] for i in range(len(selected)) if keep[i]]
+        w_sel = w_sel[keep]
+        residual = x_win - V_win[:, selected] @ w_sel
+
+    if not selected:
+        return _empty_cell_result(power)
+
+    nnls_residual = float(np.linalg.norm(residual))
+    nonzero_indices = window[np.array(selected)]
+    nonzero_values = w_sel
+    weight_sum = nonzero_values.sum()
+    norm_values = nonzero_values / weight_sum if weight_sum > 0 else nonzero_values
+    n_components = len(nonzero_indices)
+
+    return _assemble_cell_result(
+        nonzero_indices, norm_values, n_components, power,
+        nnls_residual, x_norm, cells, node_to_cells, node_to_coords_fn,
+    )
+
+
+# --- Algorithm registry ---
+POSITION_METHODS = {
+    "nnls": "_compute_position_cell",
+    "nnls_fast": "_compute_position_cell_fast",
+    "matching_pursuit": "_compute_position_cell_mp",
+}
+
+
 def _assemble_cell_result(nonzero_indices, norm_values, n_components, power,
                           nnls_residual, x_norm, cells, node_to_cells,
                           node_to_coords_fn):
@@ -428,10 +519,12 @@ class CellPositionCalculation(Calculation):
     P_MIN = 1.0
     P_MAX = 10000.0
 
-    def __init__(self, main_input, graph, spatial_dims=("position_index",), id=None):
+    def __init__(self, main_input, graph, spatial_dims=("position_index",),
+                 method="nnls_fast", id=None):
         super().__init__(main_input, id)
         self.graph = graph
         self.spatial_dims = tuple(spatial_dims)
+        self.method = method
 
     @property
     def independent_dimensions(self) -> list[str]:
@@ -478,12 +571,28 @@ class CellPositionCalculation(Calculation):
             return xr.DataArray(data, dims=["position_data"], coords={"position_data": output_coords})
         x_norm = x / total
 
-        result = _compute_position_cell_fast(
-            x_norm, eigvals, eigvecs, eigvecs_inv,
-            self._cells, self._node_to_cells, self.graph.node_to_coords,
-            p_min=self.P_MIN, p_max=self.P_MAX,
-            power_precomputed=self._power_precomputed,
-        )
+        if self.method == "nnls":
+            tm = self.graph.results["transition_matrix"].values
+            adjacency = (tm > 0) & ~np.eye(tm.shape[0], dtype=bool)
+            result = _compute_position_cell(
+                x_norm, eigvals, eigvecs, eigvecs_inv, adjacency,
+                self._cells, self._node_to_cells, self.graph.node_to_coords,
+                self.P_MIN, self.P_MAX,
+            )
+        elif self.method == "matching_pursuit":
+            result = _compute_position_cell_mp(
+                x_norm, eigvals, eigvecs, eigvecs_inv,
+                self._cells, self._node_to_cells, self.graph.node_to_coords,
+                p_min=self.P_MIN, p_max=self.P_MAX,
+                power_precomputed=self._power_precomputed,
+            )
+        else:  # "nnls_fast" (default)
+            result = _compute_position_cell_fast(
+                x_norm, eigvals, eigvecs, eigvecs_inv,
+                self._cells, self._node_to_cells, self.graph.node_to_coords,
+                p_min=self.P_MIN, p_max=self.P_MAX,
+                power_precomputed=self._power_precomputed,
+            )
 
         nonzero_indices = result['nonzero_indices']
         norm_values = result['norm_values']

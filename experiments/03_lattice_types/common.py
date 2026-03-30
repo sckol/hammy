@@ -152,6 +152,10 @@ def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False
     simulation = Simulation(pc, simulation_level=level)
     simulation.dump()
 
+    # Re-enable multi-core BLAS for calculation phase (Pool is done)
+    for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.pop(var, None)
+
     if no_calculations:
         return {"simulation": simulation, "graph_type": graph_type}
 
