@@ -6,7 +6,10 @@ yc config set instance-service-account true
 YC_INSTANCE_ID="$(curl -sH Metadata-Flavor:Google 169.254.169.254/computeMetadata/v1/instance/id)"
 
 # Run experiment — S3 keys come from container environment
-python3 -m experiments.01_walk "$@" 2>&1 | tee /root/experiment.log
+# HAMMY_EXPERIMENT selects the experiment module (default: experiments.01_walk)
+EXPERIMENT="${HAMMY_EXPERIMENT:-experiments.01_walk}"
+echo "Running: python3 -m $EXPERIMENT $@"
+python3 -m "$EXPERIMENT" "$@" 2>&1 | tee /root/experiment.log
 EXIT_CODE=${PIPESTATUS[0]}
 
 if [ $EXIT_CODE -eq 0 ]; then

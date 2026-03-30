@@ -5,3 +5,4 @@ services:
     environment:
       - S3_ACCESS_KEY=AAA
       - S3_SECRET_KEY=SSS
+      - HAMMY_EXPERIMENT=EEE
