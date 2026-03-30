@@ -129,7 +129,7 @@ def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False
     from importlib import import_module
 
     # Dynamic import of the lattice experiment module
-    mod = import_module(f".{graph_type}", package="experiments.03_lattice_types")
+    mod = import_module(f".{graph_type}", package="experiments.02_lattice_types")
     ExperimentClass = mod.EXPERIMENT_CLASS
 
     experiment = ExperimentClass()

@@ -11,7 +11,7 @@ _BINS = C.get_bins("hexagonal")
 
 
 class HexagonalLatticeExperiment(Experiment):
-    experiment_number = 3
+    experiment_number = 2
     experiment_name = "hexagonal"
     experiment_version = 1
     T = C.T
@@ -30,7 +30,7 @@ class HexagonalLatticeExperiment(Experiment):
     try:
         _c_dir = Path(__file__).parent
     except NameError:
-        _c_dir = Path("experiments/03_lattice_types")
+        _c_dir = Path("experiments/02_lattice_types")
     c_code = CCode((_c_dir / "hexagonal.c").read_text(), C.make_c_definitions("hexagonal"))
 
     def create_empty_results(self) -> xr.DataArray:

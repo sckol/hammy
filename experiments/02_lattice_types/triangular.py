@@ -1,4 +1,4 @@
-"""Square lattice: 4-direction walk (±x, ±y)."""
+"""Triangular lattice: 6-direction walk (+x,-x,+y,-y,-x+y,+x-y)."""
 import numpy as np
 import xarray as xr
 from pathlib import Path
@@ -6,13 +6,17 @@ from hammy_lib.experiment import Experiment
 from hammy_lib.ccode import CCode
 from . import common as C
 
+# Direction vectors: (+1,0),(-1,0),(0,+1),(0,-1),(-1,+1),(+1,-1)
+DX = np.array([1, -1, 0, 0, -1, 1])
+DY = np.array([0, 0, 1, -1, 1, -1])
 
-_BINS = C.get_bins("square")
+
+_BINS = C.get_bins("triangular")
 
 
-class SquareLatticeExperiment(Experiment):
-    experiment_number = 3
-    experiment_name = "square"
+class TriangularLatticeExperiment(Experiment):
+    experiment_number = 2
+    experiment_name = "triangular"
     experiment_version = 1
     T = C.T
     CHECKPOINTS = C.CHECKPOINTS
@@ -27,15 +31,14 @@ class SquareLatticeExperiment(Experiment):
     BINS_FLAT_LEN = _BINS[4]
     NUMPY_WIDTH = C.NUMPY_WIDTH
 
-    # Reuse experiment 2's C code (same walk)
     try:
-        _c_dir = Path(__file__).parent.parent / "02_lattice"
+        _c_dir = Path(__file__).parent
     except NameError:
-        _c_dir = Path("experiments/02_lattice")
-    c_code = CCode((_c_dir / "lattice.c").read_text(), C.make_c_definitions("square"))
+        _c_dir = Path("experiments/02_lattice_types")
+    c_code = CCode((_c_dir / "triangular.c").read_text(), C.make_c_definitions("triangular"))
 
     def create_empty_results(self) -> xr.DataArray:
-        return C.create_empty_results("square")
+        return C.create_empty_results("triangular")
 
     def simulate_using_python(self, loops: int, out: xr.DataArray, seed: int) -> None:
         rng = np.random.default_rng(seed)
@@ -44,10 +47,15 @@ class SquareLatticeExperiment(Experiment):
         out_vals = out.values
         for _ in range(loops):
             n = self.NUMPY_WIDTH
-            dim_choices = rng.integers(0, 2, size=(n, self.T))
-            dir_choices = rng.integers(0, 2, size=(n, self.T)) * 2 - 1
-            dx = np.where(dim_choices == 0, dir_choices, 0)
-            dy = np.where(dim_choices == 1, dir_choices, 0)
+            # 6 directions: use rejection sampling
+            dirs = rng.integers(0, 8, size=(n, self.T))
+            # Reject values >= 6, regenerate
+            bad = dirs >= 6
+            while bad.any():
+                dirs[bad] = rng.integers(0, 8, size=bad.sum())
+                bad = dirs >= 6
+            dx = DX[dirs]
+            dy = DY[dirs]
             cum_x = np.cumsum(dx, axis=1)
             cum_y = np.cumsum(dy, axis=1)
             ci = [c - 1 for c in self.CHECKPOINTS]
@@ -64,4 +72,4 @@ class SquareLatticeExperiment(Experiment):
                     np.add.at(out_vals[ti, c], (bx[v] - x_min, by[v] - y_min), 1)
 
 
-EXPERIMENT_CLASS = SquareLatticeExperiment
+EXPERIMENT_CLASS = TriangularLatticeExperiment

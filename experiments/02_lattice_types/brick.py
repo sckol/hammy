@@ -11,7 +11,7 @@ _BINS = C.get_bins("brick")
 
 
 class BrickLatticeExperiment(Experiment):
-    experiment_number = 3
+    experiment_number = 2
     experiment_name = "brick"
     experiment_version = 1
     T = C.T
@@ -30,9 +30,9 @@ class BrickLatticeExperiment(Experiment):
     # Brick uses the same walk as square (4-dir ±x,±y) but with BrickGraph2D
     # for position detection — tests offset cell geometry vs square cells
     try:
-        _c_dir = Path(__file__).parent.parent / "02_lattice"
+        _c_dir = Path(__file__).parent.parent / "02_lattice_old"
     except NameError:
-        _c_dir = Path("experiments/02_lattice")
+        _c_dir = Path("experiments/02_lattice_old")
     c_code = CCode((_c_dir / "lattice.c").read_text(), C.make_c_definitions("brick"))
 
     def create_empty_results(self) -> xr.DataArray:
