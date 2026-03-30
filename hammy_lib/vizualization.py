@@ -365,3 +365,75 @@ def bar_chart_renderer(
             _plot_reference(plot_data, reference, axis, ax)
 
     return render
+
+
+def plot_trajectory(position_results, targets_x, targets_y,
+                    filter_base, platforms=None,
+                    row_offset=0, col_offset=0,
+                    T=1000, title=None, filepath=None):
+    """Plot 2D trajectory scatter: position_col vs position_row across checkpoints.
+
+    Each subplot is one target. Colored dots at each checkpoint connected by lines.
+    Reference line shows expected straight-line path from origin to target midpoint.
+
+    Args:
+        position_results: xr.DataArray with position_data dimension
+        targets_x, targets_y: target coordinates (for reference lines)
+        filter_base: dict of filters (e.g., {"level": 4})
+        platforms: list of platforms to plot (default: all)
+        row_offset, col_offset: bin coordinate offset (e.g., 7 for bins starting at -7)
+        T: total walk steps
+        title: figure title
+        filepath: save path (if None, shows figure)
+    """
+    data = apply_filters(position_results, filter_base)
+    if platforms is None:
+        platforms = [str(p) for p in data.platform.values if str(p) != "TOTAL"]
+    targets = data.target.values
+    n_targets = len(targets)
+
+    fig, axes = plt.subplots(1, n_targets, figsize=(4 * n_targets, 4), squeeze=False)
+    cmap = plt.cm.viridis
+
+    for ti, target in enumerate(targets):
+        ax = axes[0, ti]
+        tx, ty = targets_x[ti], targets_y[ti]
+
+        for pi, plat in enumerate(platforms):
+            sel = data.sel(platform=plat, target=target)
+            rows = sel.sel(position_data="position_row").values.astype(float)
+            cols = sel.sel(position_data="position_col").values.astype(float)
+            checkpoints = sel.checkpoint.values.astype(float)
+
+            colors = cmap(checkpoints / checkpoints.max())
+            marker = "o" if pi == 0 else "s"
+
+            ax.plot(cols, rows, "-", color=f"C{pi}", alpha=0.3, linewidth=1)
+            ax.scatter(cols, rows, c=colors, s=20, marker=marker, zorder=5,
+                       label=plat if ti == 0 else None)
+
+        # Reference: straight line from origin to target at checkpoint T
+        exp_row_end = tx + row_offset
+        exp_col_end = ty + col_offset
+        ax.plot([col_offset, exp_col_end], [row_offset, exp_row_end],
+                "k--", alpha=0.5, linewidth=1)
+        ax.plot(exp_col_end, exp_row_end, "k+", markersize=10, markeredgewidth=2)
+
+        ax.set_title(f"target ({tx},{ty})")
+        ax.set_xlabel("col (y)")
+        ax.set_ylabel("row (x)")
+        ax.set_aspect("equal")
+
+    if n_targets > 0:
+        axes[0, 0].legend(fontsize=8)
+    if title:
+        fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+
+    if filepath:
+        fig.savefig(filepath, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+    else:
+        plt.show()
+
+    return fig

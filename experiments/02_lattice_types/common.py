@@ -25,7 +25,7 @@ from hammy_lib.graph import (
 )
 from hammy_lib.calculations.position import CellPositionCalculation
 from hammy_lib.calculations.bootstrap_position import BootstrapCellPositionCalculation
-from hammy_lib.vizualization import Vizualization, line_renderer, line_with_errors_renderer
+from hammy_lib.vizualization import Vizualization, line_renderer, line_with_errors_renderer, plot_trajectory
 
 
 def _try_enable_mkl():
@@ -268,5 +268,19 @@ def run(lattice_types=None, level=4, dry_run=False, no_calculations=False,
             title=f"{lt}: Cell dimension by checkpoint",
             id=f"viz_{lt}_cell_dim",
         ).dump()
+
+        # 2D trajectory scatter
+        _, _, x_len, y_len, _ = get_bins(lt)
+        row_off = x_len // 2
+        col_off = y_len // 2
+        results_dir = HammyObject.RESULTS_DIR / f"2_{lt}_1"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        plot_trajectory(
+            position.results, TARGETS_X, TARGETS_Y,
+            filter_base={"level": last_level},
+            row_offset=row_off, col_offset=col_off, T=T,
+            title=f"{lt}: 2D Trajectory",
+            filepath=str(results_dir / f"viz_{lt}_trajectory.png"),
+        )
 
     return results
