@@ -124,7 +124,7 @@ def create_empty_results(lattice_type):
 
 
 def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False,
-                       no_viz=False, no_upload=True, seed=1748065639484):
+                       no_viz=False, no_upload=False, seed=1748065639484):
     """Run simulation + position calculation for one lattice type."""
     from importlib import import_module
 
@@ -151,6 +151,10 @@ def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False
 
     simulation = Simulation(pc, simulation_level=level)
     simulation.dump()
+
+    # Upload simulation results to S3 after each lattice
+    if not no_upload and HammyObject.STORAGE:
+        HammyObject.STORAGE.upload()
 
     # Re-enable multi-core BLAS for calculation phase (Pool is done)
     for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
@@ -183,8 +187,25 @@ def run_single_lattice(graph_type, level=4, dry_run=False, no_calculations=False
 
 
 def run(lattice_types=None, level=4, dry_run=False, no_calculations=False,
-        no_viz=False, no_upload=True):
+        no_viz=False, no_upload=False):
     """Run all lattice types and produce comparison visualizations."""
+    # S3 Storage — set up FIRST so all objects auto-download from cache
+    if not no_upload:
+        try:
+            from google.colab import userdata
+            access_key = userdata.get('access_key')
+            secret_key = userdata.get('secret_key')
+        except ImportError:
+            access_key = os.environ.get('S3_ACCESS_KEY')
+            secret_key = os.environ.get('S3_SECRET_KEY')
+
+        if access_key and secret_key:
+            from hammy_lib.yandex_cloud_storage import YandexCloudStorage
+            storage = YandexCloudStorage(access_key, secret_key, "hammy")
+            HammyObject.STORAGE = storage
+        else:
+            no_upload = True
+
     if lattice_types is None:
         lattice_types = ["square", "triangular", "hexagonal", "brick"]
 
@@ -282,5 +303,9 @@ def run(lattice_types=None, level=4, dry_run=False, no_calculations=False,
             title=f"{lt}: 2D Trajectory",
             filepath=str(results_dir / f"viz_{lt}_trajectory.png"),
         )
+
+    # Final S3 upload (calculations + vizs)
+    if not no_upload and HammyObject.STORAGE:
+        HammyObject.STORAGE.upload()
 
     return results
