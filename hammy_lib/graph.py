@@ -1,94 +1,48 @@
-from collections import defaultdict
+from functools import cached_property
 import numpy as np
 import xarray as xr
+from scipy.spatial import Delaunay
 from .hammy_object import ArrayHammyObject
 
 
-def _compute_binned_transition_matrix(rows, cols, bin_min_r, bin_min_c,
-                                      step_fn, n_dirs, symmetrize=True):
-    """Numerically compute exact bin-to-bin transition matrix.
-
-    For each bin, enumerate all raw positions within it (using C-style //2),
-    simulate all possible step directions, determine which bin each lands in,
-    and average.
-
-    Args:
-        rows, cols: number of bins in each dimension.
-        bin_min_r, bin_min_c: minimum bin coordinate (e.g. -7).
-        step_fn: callable(raw_x, raw_y, direction) -> (new_x, new_y).
-        n_dirs: number of possible step directions.
-        symmetrize: if True, symmetrize via (T + T.T)/2 then re-normalize rows.
-            Needed because //2 binning creates bins of unequal size near 0,
-            breaking detailed balance.  The walk itself is reversible.
-
-    Returns:
-        (rows*cols, rows*cols) transition matrix.
-    """
-    n = rows * cols
-
-    def c_div(a, b):
-        """C-style integer division (truncate towards zero)."""
-        if a >= 0:
-            return a // b
-        return -((-a) // b)
-
-    def bin_to_idx(br, bc):
-        return (br - bin_min_r) * cols + (bc - bin_min_c)
-
-    def raw_positions_in_bin(br, bc):
-        """Enumerate raw positions that map to bin (br, bc) via C-style //2."""
-        positions = []
-        # Raw x values: 2*br and 2*br+1 for br > 0; 2*br and 2*br-1 for br < 0; -1,0,1 for br=0
-        for raw_r in range(2 * br - 1, 2 * br + 3):
-            if c_div(raw_r, 2) != br:
-                continue
-            for raw_c in range(2 * bc - 1, 2 * bc + 3):
-                if c_div(raw_c, 2) != bc:
-                    continue
-                positions.append((raw_r, raw_c))
-        return positions
-
-    tm = np.zeros((n, n))
-    bin_max_r = bin_min_r + rows - 1
-    bin_max_c = bin_min_c + cols - 1
-
-    for br in range(bin_min_r, bin_min_r + rows):
-        for bc in range(bin_min_c, bin_min_c + cols):
-            src_idx = bin_to_idx(br, bc)
-            raw_pos = raw_positions_in_bin(br, bc)
-            n_raw = len(raw_pos)
-
-            for raw_r, raw_c in raw_pos:
-                for d in range(n_dirs):
-                    new_r, new_c = step_fn(raw_r, raw_c, d)
-                    new_br = c_div(new_r, 2)
-                    new_bc = c_div(new_c, 2)
-                    # Clamp to bin range (boundary absorption)
-                    new_br = max(bin_min_r, min(bin_max_r, new_br))
-                    new_bc = max(bin_min_c, min(bin_max_c, new_bc))
-                    dst_idx = bin_to_idx(new_br, new_bc)
-                    tm[src_idx, dst_idx] += 1.0 / (n_raw * n_dirs)
-
-    if symmetrize:
-        tm = (tm + tm.T) / 2
-        # Re-normalize rows to sum to 1
-        row_sums = tm.sum(axis=1)
-        tm = tm / row_sums[:, np.newaxis]
-
-    return tm
-
-
 class Graph(ArrayHammyObject):
-    def __init__(self, transition_matrix: np.ndarray, id: str = None):
+    """Base class for random walk graphs.
+
+    Stores transition_matrix (row-stochastic), node_positions, and spectral
+    decomposition. Subclasses build these in __init__.
+
+    Convention: T[i,j] = P(step to j | currently at i). Rows sum to 1.
+    Distribution propagation: v_{t+1} = T.T @ v_t.
+    """
+
+    def __init__(self, transition_matrix: np.ndarray, node_positions: np.ndarray,
+                 faces: list[list[int]], id: str = None):
         super().__init__(id)
+        self._faces = faces
         self._results = xr.Dataset(
             {
                 "transition_matrix": (
                     ["position_index_from", "position_index_to"],
                     transition_matrix,
-                )
+                ),
+                "node_positions": (
+                    ["position_index", "spatial_dim"],
+                    node_positions,
+                ),
             }
         )
+
+    @property
+    def size(self) -> int:
+        return self._results["transition_matrix"].shape[0]
+
+    @property
+    def dim(self) -> int:
+        return self._results["node_positions"].shape[1]
+
+    @property
+    def faces(self) -> list[list[int]]:
+        return self._faces
 
     def calculate(self) -> None:
         import scipy.linalg as la
@@ -98,263 +52,287 @@ class Graph(ArrayHammyObject):
         self._results["eigenvectors"] = (["position_index", "eigen_index"], eigvecs)
         self._results["eigenvectors_inv"] = (["eigen_index", "position_index"], la.inv(eigvecs))
 
-    def get_cells(self) -> list[tuple[int, ...]]:
-        """Return list of cells. Each cell is a tuple of node indices.
+    @cached_property
+    def triangulation(self) -> Delaunay:
+        positions = self._results["node_positions"].values
+        return Delaunay(positions)
 
-        Override in subclasses with cell structure (e.g. squares for 2D lattice).
-        """
-        return []
+    def euclidean_to_barycentric(self, point: np.ndarray) -> tuple[int, np.ndarray]:
+        tri = self.triangulation
+        idx = tri.find_simplex(point)
+        T = tri.transform[idx]
+        bary = T[:-1] @ (point - T[-1])
+        return idx, np.append(bary, 1 - bary.sum())
+
+    def barycentric_to_euclidean(self, simplex_idx: int, weights: np.ndarray) -> np.ndarray:
+        nodes = self.triangulation.simplices[simplex_idx]
+        positions = self._results["node_positions"].values
+        return weights @ positions[nodes]
+
+    def get_cells(self) -> list[tuple[int, ...]]:
+        return [tuple(f) for f in self._faces]
 
     def get_node_to_cells(self) -> dict[int, list[int]]:
-        """Reverse index: node → list of cell indices in get_cells()."""
         if not hasattr(self, '_node_to_cells_cache'):
             mapping: dict[int, list[int]] = {}
-            for ci, cell in enumerate(self.get_cells()):
+            for ci, cell in enumerate(self._faces):
                 for node in cell:
                     mapping.setdefault(node, []).append(ci)
             self._node_to_cells_cache = mapping
         return self._node_to_cells_cache
 
     def node_to_coords(self, node_index: int) -> tuple:
-        """Convert flat node index to graph-specific coordinates. Override in subclasses."""
-        return (node_index,)
+        positions = self._results["node_positions"].values
+        return tuple(float(x) for x in positions[node_index])
 
     def generate_id(self) -> str:
-        return f"graph_{hash(self._results['transition_matrix'].values.tobytes())}"
+        return f"graph_{self.__class__.__name__}_{self.generate_digest(self._results['transition_matrix'].values.tobytes().hex()[:64])}"
 
     @property
     def simple_name(self) -> str:
         return self.__class__.__name__
 
 
-class LinearGraph(Graph):
-    """Linear chain with lazy walk: P(stay)=0.5, P(±1)=0.25.
+def _lazy_walk_tm(n: int, neighbors_fn, n_directions: int) -> np.ndarray:
+    """Build a lazy random walk transition matrix with fixed step probabilities.
 
-    Boundary nodes have self-loop probability 0.75 (= 0.5 + 0.25 reflected inward).
-    Matches the effective bin dynamics of walk.c, which steps ±1 in raw position
-    and stores raw//2 as the bin.
+    P(attempt each of n_directions steps) = 0.5/n_directions.
+    Blocked steps (boundary) are absorbed into the self-loop.
+    This ensures T[i,j] = T[j,i] whenever the adjacency is undirected symmetric,
+    because the off-diagonal probability is the same regardless of node degree.
+
+    Args:
+        n: number of nodes.
+        neighbors_fn: callable(node_idx) -> list of neighbor indices.
+        n_directions: total number of step directions in the lattice type.
+    """
+    tm = np.zeros((n, n))
+    step_prob = 0.5 / n_directions
+    for i in range(n):
+        nb = neighbors_fn(i)
+        tm[i, i] = 0.5 + (n_directions - len(nb)) * step_prob
+        for j in nb:
+            tm[i, j] = step_prob
+    return tm
+
+
+class LinearGraph(Graph):
+    """Linear chain with lazy walk: P(stay)=0.5, P(±1)=0.25 each.
+
+    Boundary nodes absorb the missing-neighbor probability into the self-loop.
+    node_positions: (N, 2) with y=0, x = node index.
+    faces: edges (pairs of adjacent nodes).
     """
     def __init__(self, length: int, id: str = None):
-        tm = np.zeros((length, length))
-        for i in range(length):
-            tm[i, i] = 0.5
+        node_positions = np.column_stack([np.arange(length, dtype=float),
+                                          np.zeros(length)])
+
+        def neighbors(i):
+            nb = []
             if i > 0:
-                tm[i, i - 1] = 0.25
+                nb.append(i - 1)
             if i < length - 1:
-                tm[i, i + 1] = 0.25
-        tm[0, 0] = 0.75
-        tm[-1, -1] = 0.75
-        super().__init__(tm, id)
+                nb.append(i + 1)
+            return nb
+
+        tm = _lazy_walk_tm(length, neighbors, n_directions=2)
+        faces = [[i, i + 1] for i in range(length - 1)]
+        super().__init__(tm, node_positions, faces, id)
 
 
 class LatticeGraph2D(Graph):
-    """2D regular lattice with lazy walk.
+    """2D square lattice with lazy walk.
 
-    Each step picks one of 4 directions (±x, ±y) uniformly (prob 1/4 each),
-    then the raw position is binned via //2.  Effective transition on bins:
-    P(stay)=0.5, P(each neighbor)=0.125.  Boundary nodes absorb reflected
-    probability into self-loops.
-
-    Nodes are indexed in row-major order: node(r, c) = r * cols + c,
-    matching xarray's stack(position_index=("x", "y")) ordering.
+    P(stay)=0.5, P(each of 4 steps)=0.125. Blocked steps → extra self-loop.
+    Nodes indexed row-major: node(r, c) = r * cols + c.
+    node_positions: (r, c) Euclidean coordinates.
+    faces: unit squares (n00, n10, n01, n11).
     """
     def __init__(self, rows: int, cols: int, id: str = None):
         self.rows = rows
         self.cols = cols
         n = rows * cols
-        tm = np.zeros((n, n))
-        for r in range(rows):
-            for c in range(cols):
-                idx = r * cols + c
-                tm[idx, idx] = 0.5
-                neighbors = 0
-                if r > 0:
-                    tm[idx, (r - 1) * cols + c] = 0.125
-                    neighbors += 1
-                if r < rows - 1:
-                    tm[idx, (r + 1) * cols + c] = 0.125
-                    neighbors += 1
-                if c > 0:
-                    tm[idx, r * cols + (c - 1)] = 0.125
-                    neighbors += 1
-                if c < cols - 1:
-                    tm[idx, r * cols + (c + 1)] = 0.125
-                    neighbors += 1
-                # Absorb missing neighbors into self-loop
-                tm[idx, idx] += (4 - neighbors) * 0.125
-        super().__init__(tm, id)
 
-    def get_cells(self) -> list[tuple[int, ...]]:
-        """Enumerate all square cells in the lattice.
+        node_positions = np.array(
+            [(r, c) for r in range(rows) for c in range(cols)],
+            dtype=float,
+        )
 
-        Each cell is (n00, n10, n01, n11) where subscript (ds, dt):
-        ds = column offset (0 or 1), dt = row offset (0 or 1).
-        Node n00 is the top-left corner at (r, c).
-        """
-        cells = []
-        for r in range(self.rows - 1):
-            for c in range(self.cols - 1):
-                n00 = r * self.cols + c
-                n10 = r * self.cols + (c + 1)
-                n01 = (r + 1) * self.cols + c
-                n11 = (r + 1) * self.cols + (c + 1)
-                cells.append((n00, n10, n01, n11))
-        return cells
+        def neighbors(idx):
+            r, c = idx // cols, idx % cols
+            nb = []
+            if r > 0:
+                nb.append((r - 1) * cols + c)
+            if r < rows - 1:
+                nb.append((r + 1) * cols + c)
+            if c > 0:
+                nb.append(r * cols + (c - 1))
+            if c < cols - 1:
+                nb.append(r * cols + (c + 1))
+            return nb
+
+        tm = _lazy_walk_tm(n, neighbors, n_directions=4)
+
+        faces = []
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                n00 = r * cols + c
+                n10 = r * cols + (c + 1)
+                n01 = (r + 1) * cols + c
+                n11 = (r + 1) * cols + (c + 1)
+                faces.append([n00, n10, n01, n11])
+
+        super().__init__(tm, node_positions, faces, id)
 
     def node_to_coords(self, node_index: int) -> tuple[int, int]:
-        """Convert flat node index to (row, col)."""
         return (node_index // self.cols, node_index % self.cols)
 
 
 class TriangularGraph2D(Graph):
-    """2D triangular lattice with 6-direction walk (//2 binned).
+    """2D triangular lattice with lazy 6-direction walk.
 
-    Walk directions: (±1,0), (0,±1), (-1,+1), (+1,-1).
-    Each direction chosen with prob 1/6.  After //2 binning:
-    P(stay)≈5/12, P(axis neighbor)≈1/8, P(diagonal neighbor)≈1/24.
-
-    Cells are triangles: each (r,c)→(r,c+1)→(r+1,c) (upward) and
-    (r,c+1)→(r+1,c)→(r+1,c+1) (downward).
+    Six directions (in row-col index space): (0,±1), (±1,0), (+1,-1), (-1,+1).
+    P(each step) = 0.5/6. Blocked steps → extra self-loop.
+    node_positions: axial embedding — row r offset by 0.5*r in column direction.
+      position(r,c) = (r*√3/2, c + r*0.5)
+    faces: triangles.
     """
-    # Triangular walk: 6 directions
-    STEP_DX = [1, -1, 0, 0, -1, 1]
-    STEP_DY = [0, 0, 1, -1, 1, -1]
+    STEPS = [(0, 1), (0, -1), (1, 0), (-1, 0), (1, -1), (-1, 1)]
 
     def __init__(self, rows: int, cols: int, id: str = None):
         self.rows = rows
         self.cols = cols
-        bin_min = -(rows // 2)
+        n = rows * cols
 
-        def step_fn(rx, ry, d):
-            return rx + self.STEP_DX[d], ry + self.STEP_DY[d]
-
-        tm = _compute_binned_transition_matrix(
-            rows, cols, bin_min, bin_min, step_fn, 6
+        sqrt3_2 = np.sqrt(3) / 2
+        node_positions = np.array(
+            [(r * sqrt3_2, c + r * 0.5) for r in range(rows) for c in range(cols)],
+            dtype=float,
         )
-        super().__init__(tm, id)
 
-    def get_cells(self) -> list[tuple[int, ...]]:
-        """Enumerate all triangular cells (upward + downward)."""
-        cells = []
-        for r in range(self.rows - 1):
-            for c in range(self.cols - 1):
-                n_rc = r * self.cols + c
-                n_rc1 = r * self.cols + (c + 1)
-                n_r1c = (r + 1) * self.cols + c
-                n_r1c1 = (r + 1) * self.cols + (c + 1)
-                # Upward triangle: (r,c), (r,c+1), (r+1,c)
-                cells.append((n_rc, n_rc1, n_r1c))
-                # Downward triangle: (r,c+1), (r+1,c), (r+1,c+1)
-                cells.append((n_rc1, n_r1c, n_r1c1))
-        return cells
+        def neighbors(idx):
+            r, c = idx // cols, idx % cols
+            nb = []
+            for dr, dc in self.STEPS:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    nb.append(nr * cols + nc)
+            return nb
+
+        tm = _lazy_walk_tm(n, neighbors, n_directions=6)
+
+        faces = []
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                n_rc = r * cols + c
+                n_rc1 = r * cols + (c + 1)
+                n_r1c = (r + 1) * cols + c
+                n_r1c1 = (r + 1) * cols + (c + 1)
+                faces.append([n_rc, n_rc1, n_r1c])
+                faces.append([n_rc1, n_r1c, n_r1c1])
+
+        super().__init__(tm, node_positions, faces, id)
 
     def node_to_coords(self, node_index: int) -> tuple[int, int]:
         return (node_index // self.cols, node_index % self.cols)
 
 
 class HexagonalGraph2D(Graph):
-    """2D honeycomb lattice with 3-direction walk (//2 binned).
+    """2D honeycomb lattice with lazy 3-direction walk.
 
-    Sublattice A ((x+y) even): steps (+1,0), (-1,0), (0,+1).
-    Sublattice B ((x+y) odd):  steps (+1,0), (-1,0), (0,-1).
-    Each direction chosen with prob 1/3.
-
-    Cells: hexagonal faces of the honeycomb, each with 6 nodes.
+    Sublattice A (r+c even): steps (+1,0), (-1,0), (0,+1).
+    Sublattice B (r+c odd):  steps (+1,0), (-1,0), (0,-1).
+    Adjacency is symmetric: A→B and B→A always pair correctly.
+    P(each step) = 0.5/3. Blocked steps → extra self-loop.
+    node_positions: B-sublattice nodes offset slightly (+0.1) in col for visual separation.
+    faces: 4-node square cells (approximation for position detection).
     """
     def __init__(self, rows: int, cols: int, id: str = None):
         self.rows = rows
         self.cols = cols
-        bin_min = -(rows // 2)
+        n = rows * cols
 
-        def step_fn(rx, ry, d):
-            sublattice = (rx + ry) & 1  # 0 = A, 1 = B
-            if d == 0:
-                return rx + 1, ry
-            elif d == 1:
-                return rx - 1, ry
-            else:  # d == 2
-                return (rx, ry + 1) if sublattice == 0 else (rx, ry - 1)
+        node_positions = np.zeros((n, 2))
+        for r in range(rows):
+            for c in range(cols):
+                idx = r * cols + c
+                sublattice = (r + c) % 2
+                node_positions[idx] = (float(r), float(c) + 0.1 * sublattice)
 
-        tm = _compute_binned_transition_matrix(
-            rows, cols, bin_min, bin_min, step_fn, 3
-        )
-        super().__init__(tm, id)
+        def neighbors(idx):
+            r, c = idx // cols, idx % cols
+            sublattice = (r + c) % 2
+            if sublattice == 0:  # A
+                steps = [(1, 0), (-1, 0), (0, 1)]
+            else:  # B
+                steps = [(1, 0), (-1, 0), (0, -1)]
+            nb = []
+            for dr, dc in steps:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    nb.append(nr * cols + nc)
+            return nb
 
-    def get_cells(self) -> list[tuple[int, ...]]:
-        """Hexagonal cells: 6 nodes forming each honeycomb face.
+        tm = _lazy_walk_tm(n, neighbors, n_directions=3)
 
-        Each face is bounded by 6 edges connecting alternating A/B sublattice
-        nodes.  For practical implementation, we use the smallest enclosing
-        structure: 2x2 blocks that tile the lattice.
-        """
-        # For a honeycomb on binned grid, cells are harder to define cleanly.
-        # Use 4-node square cells (same as LatticeGraph2D) as an approximation.
-        # The position detection will still work; the cell shape affects only
-        # the GBC computation.
-        cells = []
-        for r in range(self.rows - 1):
-            for c in range(self.cols - 1):
-                n00 = r * self.cols + c
-                n10 = r * self.cols + (c + 1)
-                n01 = (r + 1) * self.cols + c
-                n11 = (r + 1) * self.cols + (c + 1)
-                cells.append((n00, n10, n01, n11))
-        return cells
+        faces = []
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                n00 = r * cols + c
+                n10 = r * cols + (c + 1)
+                n01 = (r + 1) * cols + c
+                n11 = (r + 1) * cols + (c + 1)
+                faces.append([n00, n10, n01, n11])
+
+        super().__init__(tm, node_positions, faces, id)
 
     def node_to_coords(self, node_index: int) -> tuple[int, int]:
         return (node_index // self.cols, node_index % self.cols)
 
 
 class BrickGraph2D(Graph):
-    """2D brick (offset rectangular) lattice with 4-direction walk (//2 binned).
+    """2D brick (offset rectangular) lattice with lazy 6-direction walk.
 
-    Odd rows are offset by 0.5 in the column direction.  The walker steps:
-    - Same row: (0, ±1)
-    - Adjacent row: depends on row parity.
-      Even row up: (-1, 0) or (-1, -1); down: (+1, 0) or (+1, -1)
-      Odd row up: (-1, 0) or (-1, +1); down: (+1, 0) or (+1, +1)
-    Each of the 4 directions chosen with prob 1/4.
-
-    Cells: offset rectangles (4 nodes).
+    Uses the same 6 triangular-lattice directions as TriangularGraph2D but with
+    brick Euclidean coordinates: odd rows offset by +0.5 in the column direction.
+    This gives a symmetric adjacency and consistent step probabilities.
+    P(each step) = 0.5/6. Blocked steps → extra self-loop.
+    node_positions: (r, c + 0.5*(r%2)) for each node.
+    faces: offset rectangular cells (4 nodes).
     """
+    STEPS = [(0, 1), (0, -1), (1, 0), (-1, 0), (1, -1), (-1, 1)]
+
     def __init__(self, rows: int, cols: int, id: str = None):
         self.rows = rows
         self.cols = cols
-        bin_min = -(rows // 2)
+        n = rows * cols
 
-        def step_fn(rx, ry, d):
-            parity = rx & 1  # 0 = even row, 1 = odd row
-            if d == 0:  # right
-                return rx, ry + 1
-            elif d == 1:  # left
-                return rx, ry - 1
-            elif d == 2:  # up
-                if parity == 0:
-                    return rx - 1, ry  # even row up: no column shift
-                else:
-                    return rx - 1, ry + 1  # odd row up: shift right
-            else:  # down
-                if parity == 0:
-                    return rx + 1, ry  # even row down: no column shift
-                else:
-                    return rx + 1, ry + 1  # odd row down: shift right
-
-        tm = _compute_binned_transition_matrix(
-            rows, cols, bin_min, bin_min, step_fn, 4
+        node_positions = np.array(
+            [(float(r), float(c) + 0.5 * (r % 2)) for r in range(rows) for c in range(cols)],
+            dtype=float,
         )
-        super().__init__(tm, id)
 
-    def get_cells(self) -> list[tuple[int, ...]]:
-        """Offset rectangular cells (4 nodes each)."""
-        cells = []
-        for r in range(self.rows - 1):
-            for c in range(self.cols - 1):
-                n00 = r * self.cols + c
-                n10 = r * self.cols + (c + 1)
-                n01 = (r + 1) * self.cols + c
-                n11 = (r + 1) * self.cols + (c + 1)
-                cells.append((n00, n10, n01, n11))
-        return cells
+        def neighbors(idx):
+            r, c = idx // cols, idx % cols
+            nb = []
+            for dr, dc in self.STEPS:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    nb.append(nr * cols + nc)
+            return nb
+
+        tm = _lazy_walk_tm(n, neighbors, n_directions=6)
+
+        faces = []
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                n00 = r * cols + c
+                n10 = r * cols + (c + 1)
+                n01 = (r + 1) * cols + c
+                n11 = (r + 1) * cols + (c + 1)
+                faces.append([n00, n10, n01, n11])
+
+        super().__init__(tm, node_positions, faces, id)
 
     def node_to_coords(self, node_index: int) -> tuple[int, int]:
         return (node_index // self.cols, node_index % self.cols)

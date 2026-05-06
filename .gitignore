@@ -2,8 +2,8 @@ __pycache__
 /build
 build_cffi/
 .claude/
-/hammy_machine.compose.tmp
 /venv
 /hammy_docs/.obsidian/workspace.json
 /results
 .s3_credentials.json
+*.png

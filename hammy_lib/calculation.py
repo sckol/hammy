@@ -4,7 +4,6 @@ import xarray as xr
 from tqdm import tqdm
 from abc import ABC, abstractmethod
 from .hammy_object import ArrayHammyObject
-from .simulation import Simulation
 
 
 class Calculation(ArrayHammyObject, ABC):
@@ -88,10 +87,7 @@ class Calculation(ArrayHammyObject, ABC):
         pass
 
     def calculate(self) -> None:
-        if isinstance(self.main_input, Simulation):
-            main_input_results = self.extend_simulation_results()
-        else:
-            main_input_results = self.main_input.results
+        main_input_results = self.main_input.results
         required_dims = ["level", "platform"] + [
             x
             for x in self.independent_dimensions

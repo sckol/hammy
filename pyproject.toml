@@ -11,11 +11,10 @@ license = {text = "MIT"}
 authors = [{name = "Nikolay Suschenko", email = "sckol@yandex.ru"}]
 dependencies = [
     "xarray",
-    "cffi",
-    "psutil",
     "boto3",
     "matplotlib",
     "scipy",
-    "scs",
-    "h5netcdf"
+    "h5netcdf",
+    "polyscope",
+    "networkx",
 ]
