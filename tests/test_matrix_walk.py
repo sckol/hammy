@@ -1,12 +1,12 @@
 """End-to-end test: matrix walk pipeline.
 
-LatticeGraph2D → WalkTask → run on CPU via hampy → verify output.
+SquareLattice → WalkTask → run on CPU via hampy → verify output.
 """
 import numpy as np
 import pytest
 import xarray as xr
 
-from hammy_lib.graph import LatticeGraph2D, LinearGraph, TriangularGraph2D
+from hammy_lib.graph import SquareLattice as LatticeGraph2D, PathGraph as LinearGraph, HexLattice as TriangularGraph2D
 from hammy_lib.hampy import set_backend, to_numpy
 from hammy_lib.task import WalkTask
 from hammy_lib.dispatcher import Dispatcher

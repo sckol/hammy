@@ -17,7 +17,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from hammy_lib.graph import LinearGraph
+from hammy_lib.graph import PathGraph as LinearGraph
 from hammy_lib.calculations.position import _find_power, _precompute_power_search
 
 

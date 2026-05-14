@@ -2,15 +2,15 @@
 import numpy as np
 import pytest
 from hammy_lib.graph import (
-    LinearGraph, LatticeGraph2D, TriangularGraph2D,
-    HexagonalGraph2D, BrickGraph2D,
+    PathGraph, SquareLattice, HexLattice,
+    BrickLattice, CycleGraph,
 )
 
 
 @pytest.fixture(scope="session")
 def linear_graph():
     """101-node linear chain (matches experiment 1 bins)."""
-    g = LinearGraph(101)
+    g = PathGraph(101)
     g.calculate()
     return g
 
@@ -18,23 +18,23 @@ def linear_graph():
 @pytest.fixture(scope="session")
 def square_graph():
     """15x15 square lattice (matches experiment 2)."""
-    g = LatticeGraph2D(15, 15)
+    g = SquareLattice(15, 15)
     g.calculate()
     return g
 
 
 @pytest.fixture(scope="session")
 def triangular_graph():
-    """21x21 triangular lattice (matches experiment 3)."""
-    g = TriangularGraph2D(21, 21)
+    """21x21 triangular (hex) lattice (matches experiment 3)."""
+    g = HexLattice(21, 21)
     g.calculate()
     return g
 
 
 @pytest.fixture(scope="session")
 def hexagonal_graph():
-    """15x15 hexagonal lattice."""
-    g = HexagonalGraph2D(15, 15)
+    """15x15 hex lattice (same as triangular for position tests)."""
+    g = HexLattice(15, 15)
     g.calculate()
     return g
 
@@ -42,7 +42,7 @@ def hexagonal_graph():
 @pytest.fixture(scope="session")
 def brick_graph():
     """15x15 brick lattice."""
-    g = BrickGraph2D(15, 15)
+    g = BrickLattice(15, 15)
     g.calculate()
     return g
 
